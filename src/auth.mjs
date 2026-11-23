@@ -64,27 +64,29 @@ export const resetFailures = () => (failures.length = 0);
 
 export const loginPage = (error = "") => `<!doctype html>
 <html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Demo Recorder - Sign in</title><meta name="robots" content="noindex">
+<title>Growlyze Automatic Video Recorder - Sign in</title><meta name="robots" content="noindex">
+<link rel="stylesheet" href="/theme.css">
 <style>
-:root{--bg:#f6f7f9;--surface:#fff;--border:#dfe3e8;--text:#16191d;--muted:#5d6773;--accent:#2f6fed;--bad:#c4321c;--bad-bg:#fbe7e3;color-scheme:light}
-@media (prefers-color-scheme:dark){:root{--bg:#111317;--surface:#1a1d22;--border:#2f343b;--text:#e8eaed;--muted:#9aa3ad;--accent:#5b8ff9;--bad:#ff8a75;--bad-bg:#3a1d18;color-scheme:dark}}
-*{box-sizing:border-box}body{margin:0;min-height:100vh;display:grid;place-items:center;background:var(--bg);color:var(--text);font:15px/1.5 "Segoe UI",system-ui,sans-serif;padding:16px}
-.card{width:100%;max-width:360px;background:var(--surface);border:1px solid var(--border);border-radius:14px;padding:28px;box-shadow:0 8px 30px rgba(0,0,0,.06)}
-.brand{display:flex;align-items:center;gap:8px;font-weight:650;font-size:17px;margin-bottom:4px}.dot{width:10px;height:10px;border-radius:50%;background:#c4321c}
-p{color:var(--muted);margin:0 0 20px;font-size:14px}
-label{display:block;font-size:12px;font-weight:600;color:var(--muted);margin-bottom:6px}
-.pw{position:relative}input{width:100%;font:inherit;color:var(--text);background:var(--surface);border:1px solid var(--border);border-radius:8px;padding:10px 64px 10px 12px}
-input:focus{outline:2px solid var(--accent);outline-offset:-1px}
-.show{position:absolute;right:6px;top:50%;transform:translateY(-50%);border:0;background:none;color:var(--accent);font:inherit;font-size:13px;cursor:pointer;padding:6px}
-button.go{width:100%;margin-top:16px;padding:10px;border:0;border-radius:8px;background:var(--accent);color:#fff;font:inherit;font-weight:600;cursor:pointer}
-.err{background:var(--bad-bg);color:var(--bad);border-radius:8px;padding:8px 12px;font-size:13px;margin-bottom:14px}
+body{min-height:100vh;display:grid;place-items:center;padding:16px}
+.card{width:100%;max-width:400px;padding:30px 30px 28px;box-shadow:var(--shadow-lg)}
+.brandbar{display:flex;align-items:center;gap:12px;background:var(--dark);color:var(--cream);margin:-30px -30px 24px;padding:16px 22px;border-radius:8px 8px 0 0;border-bottom:2px solid var(--dark)}
+.lock{display:inline-block;background:var(--orange);color:#fff;font-size:11px;font-weight:600;letter-spacing:.1em;text-transform:uppercase;padding:3px 9px;border-radius:6px;border:1.5px solid var(--dark);margin-bottom:10px}
+h1{font-size:1.4rem;margin-bottom:6px}
+p{color:var(--muted);margin:0 0 20px;font-size:14px;font-weight:500}
+.pw{position:relative}.pw input{padding-right:70px}
+.show{position:absolute;right:6px;top:50%;transform:translateY(-50%);border:0;box-shadow:none;background:none;padding:6px 8px;font-size:13px;color:var(--orange)}
+.show:hover{background:none;color:var(--dark)}.show:active{transform:translateY(-50%)}
+button.go{width:100%;margin-top:18px;padding:11px;font-size:15px}
+.err{background:var(--bad-bg);color:var(--bad);border:2px solid var(--bad);border-radius:8px;padding:8px 12px;font-size:13px;font-weight:500;margin-bottom:16px}
 </style></head><body>
 <form class="card" method="post" action="/login">
-<div class="brand"><span class="dot"></span>Demo Recorder</div>
-<p>This workspace is locked. Enter the password to continue.</p>
+<div class="brandbar"><span class="brand"><span class="mark"></span><span class="name"><b>Growlyze</b><span>Automatic Video Recorder</span></span></span></div>
+<span class="lock">Locked</span>
+<h1>Sign in to continue</h1>
+<p>This workspace is private. Enter the password to open it.</p>
 ${error ? `<div class="err">${error}</div>` : ""}
 <label for="pw">Password</label>
 <div class="pw"><input id="pw" name="password" type="password" autocomplete="current-password" autofocus required>
 <button type="button" class="show" onclick="const i=document.getElementById('pw');i.type=i.type==='password'?'text':'password';this.textContent=i.type==='password'?'Show':'Hide'">Show</button></div>
-<button class="go" type="submit">Unlock</button>
+<button class="go primary" type="submit">Unlock</button>
 </form></body></html>`;

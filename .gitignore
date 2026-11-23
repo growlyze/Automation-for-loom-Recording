@@ -6,3 +6,8 @@ shares.json
 shares.json.tmp
 edit-requests/
 *.log
+videos/*.json
+!videos/example.json
+videos/*.txt
+logs/
+videos/plain/

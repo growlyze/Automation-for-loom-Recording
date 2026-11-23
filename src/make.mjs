@@ -4,9 +4,11 @@
 import { spawnSync } from "node:child_process";
 import { appendFileSync, copyFileSync, existsSync, mkdirSync, readdirSync, rmSync, writeFileSync } from "node:fs";
 import path from "node:path";
+import { prepareAccounts, saveSession } from "./accounts.mjs";
 import { openBrowser, sleep } from "./browser.mjs";
 import { ROOT, loadEnv } from "./env.mjs";
 import { readInput } from "./input.mjs";
+import { clockTime, startRun } from "./runlog.mjs";
 import { PipelineError, connectOpenScreen, ffmpegPath, findOpenScreen } from "./openscreen.mjs";
 import { toSrt, toText, toVtt } from "./transcript.mjs";
 import { durationMs, synthesizeAll } from "./tts.mjs";
@@ -25,12 +27,21 @@ if (!inputFile) {
 	process.exit(2);
 }
 
+// Two kinds of log line: ACTION is what happened on screen, in plain words (clicked, typed,
+// switched account, said); SYSTEM is the automatic work around it (voice, recording, export).
+// Every line goes to the console, the video's log.txt and the permanent run log in logs/.
 let logFile = null;
-const log = (msg) => {
-	const line = `[${new Date().toISOString().slice(11, 23)}] ${msg}`;
+const run = startRun({ script: path.relative(ROOT, path.resolve(inputFile ?? "")).replaceAll("\\", "/") });
+const write = (type, msg) => {
+	const line = `[${clockTime()}] [${type}] ${msg}`;
 	if (!msg.startsWith("openscreen ")) console.log(line);
 	if (logFile) appendFileSync(logFile, `${line}\n`);
+	run.append(line);
 };
+const log = (msg) => write("SYSTEM", msg);
+const action = (msg) => write("ACTION", msg);
+
+const fmtVideoTime = (ms) => `${Math.floor(ms / 60000)}:${String(Math.floor(ms / 1000) % 60).padStart(2, "0")}`;
 
 // The Microsoft Store build sees %APPDATA% through a per-app redirect: map its paths to real ones.
 function realPath(p) {
@@ -59,6 +70,7 @@ function mixNarration(clips, totalMs, out) {
 
 async function main() {
 	const spec = readInput(path.resolve(inputFile));
+	run.describe({ slug: spec.slug, title: spec.title });
 	if (args.includes("--captions")) spec.captions = true;
 	if (args.includes("--no-captions")) spec.captions = false;
 
@@ -81,10 +93,30 @@ async function main() {
 	let recording = false;
 	const timeline = [];
 	try {
-		// 3. Stage the page, then record its window.
+		// 3. Sign in the script's accounts (saved sessions are reused), stage the page, then record its window.
+		let accountStates = {};
+		if (spec.accounts?.length) {
+			log(`Preparing ${spec.accounts.length} account(s)...`);
+			accountStates = await prepareAccounts(spec, log);
+		}
 		log(`Opening ${spec.url} ...`);
-		browser = await openBrowser(spec.url, log);
+		browser = await openBrowser(spec.url, log, {
+			accounts: accountStates,
+			accountEmails: Object.fromEntries((spec.accounts ?? []).map((a) => [a.id, a.email])),
+			onStateChange: (id, state) => {
+				const acc = spec.accounts.find((a) => a.id === id);
+				if (acc) saveSession(spec.url, acc.email, state);
+			},
+		});
+		// Start in the first step's account, so the opening frames already show the right screen.
+		const firstSwitch = spec.steps[0]?.action === "switch" ? spec.steps[0] : null;
+		let firstSwitchDone = null;
+		if (firstSwitch) {
+			firstSwitchDone = await browser.run(firstSwitch, 1);
+			await sleep(800);
+		}
 		await browser.park();
+		await browser.markWindow();
 		log("Starting the recording - please don't touch the mouse or keyboard until it ends.");
 		const started = await os.call("startRecording", { window: browser.token });
 		log("Recording.");
@@ -97,13 +129,31 @@ async function main() {
 		for (const [i, step] of spec.steps.entries()) {
 			const clip = clips[i];
 			const t0 = Date.now();
-			await browser.run(step, i + 1);
+			let skipped = null;
+			const at = `[${fmtVideoTime(t0 - recStart)}] Step ${i + 1}`;
+			if (clip) action(`${at} · Said: "${clip.text}"`);
+			let did = null;
+			if (i === 0 && firstSwitch) {
+				did = firstSwitchDone; // already on this account's screen (done before recording started)
+			} else {
+				try {
+					did = await browser.run(step, i + 1);
+				} catch (e) {
+					if (!step.optional) {
+						action(`${at} · Could not do it: ${e.message.replace(/^Step \d+ \([^)]*\): /, "")}`);
+						throw e;
+					}
+					skipped = e.message;
+					action(`${at} · Skipped (optional step, it could not be done): ${e.message.replace(/^Step \d+ \([^)]*\): /, "")}`);
+				}
+			}
+			if (did) action(`${at} · ${did}`);
 			const actionEnd = Date.now();
 			const narrationEnd = clip ? t0 + clip.durationMs + GAP_MS : t0;
 			const hold = step.action === "wait" ? t0 + (step.ms ?? 1000) : actionEnd + (step.action === "goto" ? 600 : HOLD_MS);
 			const until = Math.max(narrationEnd, hold) + (step.pause ?? 0);
 			await sleep(until - Date.now());
-			timeline.push({ step: i + 1, action: step.action, startMs: t0 - recStart, actionMs: actionEnd - t0, endMs: Date.now() - recStart, say: step.say ?? null, narrationMs: clip?.durationMs ?? 0 });
+			timeline.push({ step: i + 1, action: step.action, ...(step.account ? { account: step.account } : {}), ...(skipped ? { skipped } : {}), startMs: t0 - recStart, actionMs: actionEnd - t0, endMs: Date.now() - recStart, say: step.say ?? null, narrationMs: clip?.durationMs ?? 0 });
 			log(`  step ${i + 1} ${step.action.padEnd(6)} at ${((t0 - recStart) / 1000).toFixed(2)} s (action ${actionEnd - t0} ms)`);
 			if (clip) clip.offsetMs = t0 - recStart;
 		}
@@ -113,6 +163,7 @@ async function main() {
 		const stop = await os.call("stopRecording", { title: spec.title });
 		recording = false;
 		log(`Recording stopped: ${stop.durationSec?.toFixed(1)} s, project ${stop.projectId}`);
+		await browser.captureCurrent();
 		const pointerEvents = browser.events;
 		await browser.close();
 		browser = null;
@@ -193,6 +244,7 @@ async function main() {
 		spawnSync(ffmpegPath(), ["-y", "-loglevel", "error", "-ss", "2", "-i", mp4, "-frames:v", "1", "-vf", "scale=1280:-2", "-q:v", "3", path.join(outDir, "poster.jpg")]);
 		log("Transcript (txt, srt, vtt) and poster image written.");
 		log(`Done: ${path.join(outDir, `${spec.slug}.mp4`)}`);
+		return { videoDurationMs: totalMs, voice: clips.provider?.voiceName ?? clips.provider?.name ?? null, steps: spec.steps.length, skippedSteps: timeline.filter((t) => t.skipped).length };
 	} catch (e) {
 		if (browser) await browser.screenshot(path.join(outDir, "failure.png"));
 		throw e;
@@ -206,9 +258,12 @@ async function main() {
 	}
 }
 
-main().catch((e) => {
+main().then(
+	(result) => run.finish({ status: "success", extra: result ?? {} }),
+	(e) => {
 	const msg = e instanceof PipelineError ? e.message : e.stack ?? String(e);
 	log(`ERROR: ${msg}`);
+	run.finish({ status: "failed", error: msg.split("\n")[0].slice(0, 300) });
 	if (logFile) {
 		writeFileSync(
 			path.join(path.dirname(logFile), "failed.json"),
@@ -216,4 +271,5 @@ main().catch((e) => {
 		);
 	}
 	process.exitCode = 1;
-});
+	},
+);

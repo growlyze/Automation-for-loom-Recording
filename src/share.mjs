@@ -160,27 +160,31 @@ function watchPage(token, slug, timeline, origin) {
 <meta property="og:type" content="video.other"><meta property="og:title" content="${esc(title)}">
 <meta property="og:description" content="${esc(desc)}"><meta property="og:image" content="${esc(origin)}${base}/poster.jpg">
 <meta name="twitter:card" content="summary_large_image">
+<link rel="stylesheet" href="/theme.css">
 <style>
-:root{--bg:#f6f7f9;--surface:#fff;--border:#e1e4e8;--text:#16191d;--muted:#5d6773;--accent:#2f6fed;--hl:#eaf1ff;color-scheme:light}
-@media (prefers-color-scheme:dark){:root{--bg:#111317;--surface:#1a1d22;--border:#2f343b;--text:#e8eaed;--muted:#9aa3ad;--accent:#6b9bff;--hl:#1d2a44;color-scheme:dark}}
-*{box-sizing:border-box}body{margin:0;background:var(--bg);color:var(--text);font:15px/1.55 "Segoe UI",system-ui,sans-serif}
-main{max-width:1180px;margin:0 auto;padding:24px 20px 48px}
-h1{font-size:22px;margin:0 0 4px}.meta{color:var(--muted);font-size:13px;margin-bottom:16px}
-.layout{display:grid;grid-template-columns:minmax(0,1.8fr) minmax(280px,1fr);gap:20px;align-items:start}
+header{background:var(--dark);color:var(--cream);border-bottom:2px solid var(--dark)}
+header .in{max-width:1200px;margin:0 auto;padding:12px 20px}
+main{max-width:1200px;margin:0 auto;padding:28px 20px 56px}
+.kicker{display:inline-block;background:var(--orange);color:#fff;font-size:11px;font-weight:600;letter-spacing:.1em;text-transform:uppercase;padding:3px 9px;border-radius:6px;border:1.5px solid var(--dark);margin-bottom:10px}
+.meta{color:var(--muted);font-size:13px;font-weight:600;margin-bottom:20px}
+.layout{display:grid;grid-template-columns:minmax(0,1.8fr) minmax(280px,1fr);gap:22px;align-items:start}
+.layout>*{min-width:0}
 @media(max-width:860px){.layout{grid-template-columns:1fr}}
-video{width:100%;display:block;border-radius:12px;background:#000;aspect-ratio:16/9}
-.panel{background:var(--surface);border:1px solid var(--border);border-radius:12px;padding:14px 16px}
-.panel h2{font-size:14px;margin:0 0 8px;display:flex;align-items:center;gap:8px}
+video{width:100%;display:block;border-radius:var(--radius);background:var(--dark);aspect-ratio:16/9;border:2px solid var(--dark);box-shadow:var(--shadow-lg)}
+.panel{padding:16px 18px}
+.panel h2{font-size:15px;margin:0 0 10px;display:flex;align-items:baseline;gap:8px;flex-wrap:wrap}
 .tx{max-height:min(62vh,560px);overflow:auto;margin:0 -8px}
-.line{display:grid;grid-template-columns:44px 1fr;gap:8px;padding:7px 8px;border-radius:8px;cursor:pointer}
-.line:hover{background:var(--bg)}.line.now{background:var(--hl)}
-.ts{font:12px ui-monospace,Consolas,monospace;color:var(--accent);padding-top:2px}
-.actions{display:flex;gap:8px;flex-wrap:wrap;margin-top:14px}
-a.btn{display:inline-flex;align-items:center;gap:6px;padding:7px 14px;border-radius:8px;border:1px solid var(--border);background:var(--surface);color:var(--text);text-decoration:none;font-size:14px}
-a.btn.primary{background:var(--accent);border-color:var(--accent);color:#fff;font-weight:600}
-.spacer{flex:1}.small{font-size:12px;color:var(--muted);font-weight:400}
-@media(max-width:600px){main{padding:16px}}
-</style></head><body><main>
+.line{display:grid;grid-template-columns:46px 1fr;gap:8px;padding:7px 8px;border-radius:8px;cursor:pointer;border:2px solid transparent}
+.line>*{min-width:0}
+.line:hover{background:var(--surface-2)}.line.now{background:#ffe1cf;border-color:var(--dark)}
+.ts{font:500 12px var(--mono);color:var(--orange);padding-top:2px}
+.actions{display:flex;gap:10px;flex-wrap:wrap;margin-top:18px}
+.small{font-size:12px;color:var(--muted);font-weight:500}
+@media(max-width:600px){main{padding:18px 16px 40px}header .in{padding:10px 16px}}
+</style></head><body>
+<header><div class="in"><span class="brand"><span class="mark"></span><span class="name"><b>Growlyze</b><span>Automatic Video Recorder</span></span></span></div></header>
+<main>
+<span class="kicker">Demo video</span>
 <h1>${esc(title)}</h1>
 <div class="meta">${timeline?.durationMs ? short(timeline.durationMs) : ""}${timeline?.finishedAt ? ` · ${new Date(timeline.finishedAt).toLocaleDateString("en-GB", { day: "numeric", month: "short", year: "numeric" })}` : ""}</div>
 <div class="layout">
@@ -189,7 +193,7 @@ a.btn.primary{background:var(--accent);border-color:var(--accent);color:#fff;fon
 <track kind="subtitles" srclang="en" label="English" src="${base}/transcript.vtt"${timeline?.captions ? "" : " default"}></track></video>
 <div class="actions"><a class="btn primary" href="${base}/video.mp4?download">⬇ Download video</a><a class="btn" href="${base}/transcript.txt?download">Transcript (.txt)</a><a class="btn" href="${base}/transcript.srt?download">Subtitles (.srt)</a></div>
 </div>
-<div class="panel"><h2>Transcript <span class="small">click a line to jump there</span></h2>
+<div class="panel card"><h2>Transcript <span class="small">click a line to jump there</span></h2>
 <div class="tx" id="tx">${lines.map((l) => `<div class="line" data-at="${(l.startMs / 1000).toFixed(2)}" data-end="${(l.endMs / 1000).toFixed(2)}"><span class="ts">${short(l.startMs)}</span><span>${esc(l.text)}</span></div>`).join("") || '<p class="small">This video has no narration.</p>'}</div></div>
 </div></main>
 <script>
@@ -201,13 +205,16 @@ let last=null;v.ontimeupdate=()=>{let c=null;for(const l of ls)if(+l.dataset.at<
 
 const SECURITY = { "x-robots-tag": "noindex, nofollow", "referrer-policy": "no-referrer", "x-content-type-options": "nosniff" };
 const notFound = (res) =>
-	sendText(res, 404, `<!doctype html><meta charset="utf-8"><meta name="viewport" content="width=device-width"><title>Link not available</title><body style="font:16px system-ui;display:grid;place-items:center;min-height:90vh;margin:0;color:#555"><div style="text-align:center"><h1 style="font-size:20px;color:#222">This link is not available</h1><p>It may have been turned off by its owner.</p></div>`, ".html", null, SECURITY);
+	sendText(res, 404, `<!doctype html><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><title>Link not available</title><link rel="stylesheet" href="/theme.css"><body style="display:grid;place-items:center;min-height:100vh;padding:16px"><div class="card" style="max-width:420px;padding:28px;text-align:center"><span class="brand" style="justify-content:center;margin-bottom:16px;color:var(--dark)"><span class="mark" style="border-color:var(--dark)"></span><span class="name"><b>Growlyze</b><span>Automatic Video Recorder</span></span></span><h1 style="font-size:1.3rem">This link is not available</h1><p style="color:var(--muted);font-weight:500;margin:6px 0 0">It may have been turned off by its owner.</p></div>`, ".html", null, SECURITY);
 
 export function startShareServer() {
 	const server = http.createServer((req, res) => {
 		try {
 			if (req.method !== "GET" && req.method !== "HEAD") return notFound(res);
 			const url = new URL(req.url, "http://x");
+			if (url.pathname === "/theme.css") return serveFile(req, res, path.join(ROOT, "ui", "theme.css"), { extra: { ...SECURITY, "content-type": "text/css; charset=utf-8" } });
+			const font = /^\/fonts\/(switzer-latin-\d{3}-normal\.woff2)$/.exec(url.pathname);
+			if (font) return serveFile(req, res, path.join(ROOT, "ui", "fonts", font[1]), { extra: { ...SECURITY, "content-type": "font/woff2", "cache-control": "public, max-age=604800" } });
 			const m = /^\/v\/([A-Za-z0-9_-]{16})(?:\/(video\.mp4|poster\.jpg|transcript\.(?:vtt|srt|txt)))?\/?$/.exec(url.pathname);
 			const share = m && load()[m[1]];
 			const dir = share && path.join(OUTPUT, share.slug);

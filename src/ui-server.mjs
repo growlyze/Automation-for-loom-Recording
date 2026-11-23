@@ -8,7 +8,7 @@ import http from "node:http";
 import path from "node:path";
 import { ROOT, loadEnv } from "./env.mjs";
 import { MIME, readJson, sendJson as send, sendText, serveFile as serveFileBase } from "./http-util.mjs";
-import { slugify, validateSpec } from "./input.mjs";
+import { parseScript, slugify, validateSpec } from "./input.mjs";
 
 loadEnv();
 // Imported after loadEnv so SHARE_* settings from .env apply.
@@ -16,6 +16,26 @@ const share = await import("./share.mjs");
 const { buildTranscript, toSrt, toText, toVtt } = await import("./transcript.mjs");
 const { listVoices } = await import("./tts.mjs");
 const auth = await import("./auth.mjs");
+const runlog = await import("./runlog.mjs");
+const { convertScript, converterAvailable } = await import("./ai-convert.mjs");
+
+// One AI conversion at a time; its progress streams to the page as "convert" events.
+let conversion = null; // { id, status, lines, script, error, startedAt }
+const conversionView = () => conversion && { ...conversion, lines: conversion.lines.slice(-300) };
+function startConversion(text) {
+	const c = { id: Date.now().toString(36), status: "running", lines: [], script: null, error: null, startedAt: new Date().toISOString() };
+	conversion = c;
+	broadcast("convert", conversionView());
+	convertScript(text, {
+		onLine: (line) => {
+			c.lines.push(line);
+			broadcast("convert-line", { id: c.id, line });
+		},
+	}).then(
+		(r) => Object.assign(c, { status: "done", script: r.script, costUsd: r.costUsd }),
+		(e) => Object.assign(c, { status: "failed", error: e.message }),
+	).finally(() => broadcast("convert", conversionView()));
+}
 if (!auth.authEnabled()) console.warn("Warning: UI_PASSWORD is not set in .env - the interface is NOT locked.");
 
 const rawBody = (req) =>
@@ -155,6 +175,10 @@ const server = http.createServer(async (req, res) => {
 	const m = (re) => re.exec(p);
 	let r;
 	try {
+		// Theme and fonts are public: the lock page needs them before signing in.
+		if (req.method === "GET" && p === "/theme.css") return serveFileBase(req, res, path.join(ROOT, "ui", "theme.css"), { extra: { "content-type": "text/css; charset=utf-8" } });
+		if (req.method === "GET" && (r = m(/^\/fonts\/(switzer-latin-\d{3}-normal\.woff2)$/))) return serveFileBase(req, res, path.join(ROOT, "ui", "fonts", r[1]), { extra: { "content-type": "font/woff2", "cache-control": "public, max-age=604800" } });
+
 		// ---- lock ----
 		if (p === "/login") {
 			if (req.method === "POST") {
@@ -192,7 +216,28 @@ const server = http.createServer(async (req, res) => {
 		}
 		if (req.method === "GET" && p === "/api/status") {
 			const key = !!process.env.ELEVENLABS_API_KEY?.trim();
-			return send(res, 200, { voice: key ? "ElevenLabs (chosen per script)" : "Windows offline voice (fallback)", job: jobView(), tunnel: share.tunnelState(), locked: auth.authEnabled() });
+			return send(res, 200, { voice: key ? "ElevenLabs (chosen per script)" : "Windows offline voice (fallback)", job: jobView(), tunnel: share.tunnelState(), locked: auth.authEnabled(), converter: converterAvailable() });
+		}
+
+		// Logs: every run, by month and day
+		if (req.method === "GET" && p === "/api/logs") {
+			const runs = runlog.listRuns().map(({ pid, ...r }) => r);
+			const months = {};
+			for (const r of runs) {
+				const m = (months[r.month] ??= { month: r.month, runs: 0, failed: 0, success: 0 });
+				m.runs++;
+				if (r.status === "failed") m.failed++;
+				if (r.status === "success") m.success++;
+			}
+			return send(res, 200, { months: Object.values(months).sort((a, b) => (a.month < b.month ? 1 : -1)), runs });
+		}
+		if ((r = m(/^\/api\/logs\/([\w-]{8,40})(\/download)?$/)) && req.method === "GET") {
+			const entry = runlog.listRuns().find((x) => x.id === r[1]);
+			if (!entry) return send(res, 404, { error: "No such run" });
+			const text = runlog.readRunLog(entry);
+			if (r[2]) return sendText(res, 200, text, ".txt", `${entry.day}-${path.basename(entry.file ?? entry.id)}`);
+			const { pid, ...run } = entry;
+			return send(res, 200, { run, text });
 		}
 
 		// Voices the person writing a script can choose from
@@ -238,6 +283,31 @@ const server = http.createServer(async (req, res) => {
 
 		// Scripts
 		if (req.method === "GET" && p === "/api/scripts") return send(res, 200, listScripts());
+		if (req.method === "POST" && p === "/api/parse") {
+			// Pasted script (JSON or the simple text format) -> spec + every problem found.
+			const { text, overrides } = await body(req);
+			const { spec, errors, prose } = parseScript(text);
+			if (prose) return send(res, 200, { spec: null, errors, prose: true, converter: converterAvailable() });
+			if (spec && overrides && typeof overrides === "object") {
+				for (const k of ["voice", "captions", "resolution"]) if (overrides[k] !== undefined) spec[k] = overrides[k];
+				if (overrides.voice === "") delete spec.voice;
+			}
+			// When step lines were rejected, "steps is required" only repeats that.
+			const checks = spec ? validateSpec(structuredClone(spec)).filter((e) => !(errors.length && e.startsWith('"steps"'))) : [];
+			const all = [...errors, ...checks];
+			return send(res, 200, { spec, errors: all });
+		}
+		if (p === "/api/convert") {
+			if (req.method === "GET") return send(res, 200, { conversion: conversionView(), available: converterAvailable() });
+			if (req.method === "POST") {
+				if (!converterAvailable()) return send(res, 400, { error: "Converting plain-English scripts needs an Anthropic API key: add ANTHROPIC_API_KEY=... to .env, then restart the UI." });
+				if (conversion?.status === "running") return send(res, 409, { error: "A conversion is already running. Wait for it to finish." });
+				const { text } = await body(req);
+				if (!text?.trim()) return send(res, 400, { error: "Paste a script first." });
+				startConversion(text);
+				return send(res, 200, conversionView());
+			}
+		}
 		if (req.method === "POST" && p === "/api/validate") {
 			const spec = await body(req);
 			return send(res, 200, { errors: validateSpec(structuredClone(spec)) });
@@ -354,7 +424,7 @@ server.on("error", (e) => {
 	process.exit(1);
 });
 server.listen(PORT, "127.0.0.1", () => {
-	console.log(`Demo Recorder UI: http://localhost:${PORT}  (Ctrl+C to stop)`);
+	console.log(`Growlyze Automatic Video Recorder: http://localhost:${PORT}  (Ctrl+C to stop)`);
 	share.startShareServer();
 	// Links already handed out keep working: bring the tunnel up when any exist.
 	if (share.listShares().length) share.startTunnel(onTunnel);

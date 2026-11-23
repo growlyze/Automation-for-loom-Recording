@@ -9,7 +9,12 @@ import { PipelineError } from "./openscreen.mjs";
 const SELECTOR_TIMEOUT = Number(process.env.SELECTOR_TIMEOUT_MS ?? 10000);
 const sleep = (ms) => new Promise((r) => setTimeout(r, Math.max(0, ms)));
 
-export async function openBrowser(url, log) {
+/**
+ * accounts: { [id]: storageState } of signed-in sessions (see accounts.mjs). "guest" is always
+ * available: signed out. Switching swaps cookies and local storage in the one recorded window,
+ * so no login happens on camera.
+ */
+export async function openBrowser(url, log, { accounts = {}, accountEmails = {}, onStateChange = () => {} } = {}) {
 	const profile = mkdtempSync(path.join(tmpdir(), "demo-recorder-"));
 	const options = {
 		headless: false,
@@ -71,7 +76,9 @@ export async function openBrowser(url, log) {
 	}
 
 	async function locate(selector, stepNo, action) {
-		const loc = page.locator(selector).first();
+		// Only visible matches: a selector like [name="description"] can also match hidden
+		// elements (e.g. <meta name="description">) that come first in the page.
+		const loc = page.locator(`${selector} >> visible=true`).first();
 		try {
 			await loc.waitFor({ state: "visible", timeout: SELECTOR_TIMEOUT });
 			await loc.scrollIntoViewIfNeeded({ timeout: SELECTOR_TIMEOUT });
@@ -83,41 +90,114 @@ export async function openBrowser(url, log) {
 		return { loc, cx: box.x + box.width / 2, cy: box.y + box.height / 2 };
 	}
 
+	/** The name a person would use for an element: its aria-label, <label>, placeholder or text. */
+	async function labelOf(loc, fallback) {
+		const name = await loc
+			.evaluate((el) => {
+				const clean = (t) => (t ?? "").replace(/\s+/g, " ").trim();
+				const byFor = el.id ? document.querySelector(`label[for="${CSS.escape(el.id)}"]`) : null;
+				return (
+					clean(el.getAttribute("aria-label")) ||
+					clean(el.labels?.[0]?.innerText) ||
+					clean(byFor?.innerText) ||
+					clean(el.getAttribute("placeholder")) ||
+					clean(el.innerText) ||
+					clean(el.getAttribute("title")) ||
+					clean(el.value) ||
+					clean(el.getAttribute("name"))
+				);
+			})
+			.catch(() => "");
+		const short = name.replace(/\s*\*$/, "").slice(0, 70);
+		return short ? `"${short}${name.length > 70 ? "…" : ""}"` : fallback;
+	}
+
 	async function click(selector, stepNo, action = "click") {
-		const { cx, cy } = await locate(selector, stepNo, action);
+		const { loc, cx, cy } = await locate(selector, stepNo, action);
+		const label = await labelOf(loc, selector);
 		await moveTo(cx, cy);
 		await sleep(150);
 		logPointer(true);
 		await page.mouse.down();
 		await sleep(70);
 		await page.mouse.up();
+		return label;
 	}
 
-	/** Runs one step's action. Resolves when the action itself is done. */
+	// ---- accounts ----
+	let current = "guest";
+	const states = { ...accounts };
+	async function captureCurrent() {
+		// Sites rotate tokens while in use: keep the newest copy for the next switch back.
+		if (current === "guest" || !states[current]) return;
+		try {
+			const origin = new URL(page.url()).origin;
+			const items = await page.evaluate(() => Object.entries(localStorage).map(([name, value]) => ({ name, value })));
+			const st = states[current];
+			const o = st.origins?.find((x) => x.origin === origin);
+			if (o) o.localStorage = items;
+			else (st.origins ??= []).push({ origin, localStorage: items });
+			st.cookies = await ctx.cookies();
+			onStateChange(current, st);
+		} catch {}
+	}
+	async function switchTo(accountId, landingUrl, stepNo) {
+		if (accountId !== "guest" && !states[accountId]) throw new PipelineError(`Step ${stepNo} (switch): no signed-in session for account "${accountId}".`);
+		await captureCurrent();
+		const target = landingUrl || url;
+		const origin = new URL(target).origin;
+		if (new URL(page.url()).origin !== origin) await page.goto(origin, { waitUntil: "domcontentloaded", timeout: 60000 });
+		const st = accountId === "guest" ? { cookies: [], origins: [] } : states[accountId];
+		await ctx.clearCookies();
+		if (st.cookies?.length) await ctx.addCookies(st.cookies);
+		const items = st.origins?.find((o) => o.origin === origin)?.localStorage ?? [];
+		await page.evaluate((items) => {
+			localStorage.clear();
+			sessionStorage.clear();
+			for (const { name, value } of items) localStorage.setItem(name, value);
+		}, items);
+		await page.goto(target, { waitUntil: "load", timeout: 60000 });
+		current = accountId;
+		if (accountId !== "guest" && (await page.locator('input[type="password"]').first().isVisible().catch(() => false))) {
+			throw new PipelineError(`Step ${stepNo} (switch): the saved session for "${accountId}" was rejected by the site. Run again to sign in fresh.`);
+		}
+	}
+
+	/**
+	 * Runs one step's action. Resolves, when the action itself is done, with a plain-English
+	 * description of what was done (for the Actions log), e.g. 'Clicked "Payments"'.
+	 */
 	async function run(step, stepNo) {
 		switch (step.action) {
+			case "switch": {
+				await switchTo(step.account, step.url, stepNo);
+				const who = step.account === "guest" ? "signed out (guest view)" : `account "${step.account}"${accountEmails[step.account] ? ` (${accountEmails[step.account]})` : ""}`;
+				return `Switched to ${who}${step.url ? ` on ${step.url}` : ""}`;
+			}
 			case "goto":
 				try {
 					await page.goto(step.url, { waitUntil: "load", timeout: 60000 });
 				} catch (e) {
 					throw new PipelineError(`Step ${stepNo} (goto): could not open ${step.url}: ${e.message.split("\n")[0]}`);
 				}
-				return;
+				return `Opened ${step.url}`;
 			case "click":
-				return click(step.selector, stepNo);
+				return `Clicked ${await click(step.selector, stepNo)}`;
 			case "hover": {
-				const { cx, cy } = await locate(step.selector, stepNo, "hover");
-				return moveTo(cx, cy);
+				const { loc, cx, cy } = await locate(step.selector, stepNo, "hover");
+				const label = await labelOf(loc, step.selector);
+				await moveTo(cx, cy);
+				return `Pointed at ${label}`;
 			}
 			case "type": {
-				await click(step.selector, stepNo, "type");
+				const label = await click(step.selector, stepNo, "type");
 				const perChar = step.delay ?? 60;
 				let i = 0;
 				for (const ch of String(step.text)) {
 					await page.keyboard.type(ch);
 					await sleep(perChar + ((i++ * 37) % 40));
 				}
-				return;
+				return `Typed "${step.text}" into ${label}`;
 			}
 			case "press":
 				try {
@@ -125,7 +205,7 @@ export async function openBrowser(url, log) {
 				} catch (e) {
 					throw new PipelineError(`Step ${stepNo} (press): "${step.key}" is not a key Playwright knows (e.g. Enter, Tab, Escape, ArrowDown, Control+A): ${e.message.split("\n")[0]}`);
 				}
-				return;
+				return `Pressed ${step.key}`;
 			case "scroll": {
 				let dy = step.y;
 				if (step.selector) {
@@ -138,16 +218,19 @@ export async function openBrowser(url, log) {
 					const top = await loc.evaluate((el) => el.getBoundingClientRect().top);
 					dy = top - 120;
 				}
+				// The wheel scrolls whatever is under the pointer: after a sidebar click that is the
+				// sidebar, so glide onto the main content first.
+				if (pos.x < geom.innerWidth * 0.3 || pos.y < geom.innerHeight * 0.15) await moveTo(geom.innerWidth * 0.62, geom.innerHeight * 0.55, 500);
 				// Smooth wheel scroll, about 1 s.
 				const steps = 30;
 				for (let i = 0; i < steps; i++) {
 					await page.mouse.wheel(0, dy / steps);
 					await sleep(33);
 				}
-				return;
+				return step.selector ? `Scrolled to ${step.selector}` : `Scrolled ${dy >= 0 ? "down" : "up"} ${Math.abs(Math.round(dy))} px`;
 			}
 			case "wait":
-				return; // the pacing below holds for step.ms
+				return step.ms ? `Waited ${(step.ms / 1000).toFixed(1)} s` : null; // the pacing below holds for step.ms
 			default:
 				throw new PipelineError(`Step ${stepNo}: unknown action "${step.action}".`);
 		}
@@ -166,6 +249,12 @@ export async function openBrowser(url, log) {
 		events,
 		run,
 		park,
+		captureCurrent,
+		states,
+		/** Re-applies the window title OpenScreen finds the window by (a navigation resets it). */
+		async markWindow() {
+			await page.evaluate((t) => (document.title = t), token).catch(() => {});
+		},
 		async screenshot(file) {
 			await page.screenshot({ path: file }).catch(() => {});
 		},

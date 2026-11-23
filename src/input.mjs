@@ -10,9 +10,154 @@ export const ACTIONS = {
 	hover: { required: ["selector"], help: '{ "action": "hover", "selector": ".menu" }' },
 	scroll: { required: [], help: '{ "action": "scroll", "selector": "#pricing" }  or  { "action": "scroll", "y": 600 }' },
 	wait: { required: [], help: '{ "action": "wait", "ms": 1500 }' },
+	switch: { required: ["account"], help: '{ "action": "switch", "account": "admin" }  (or "guest" for signed out)' },
 };
 
 const RESOLUTIONS = { "1920x1080": "good", "1280x720": "medium", source: "source" };
+
+/**
+ * Turns pasted script text into a spec. Accepts JSON (the file format) or the simple text format:
+ *
+ *   Title: How to sign up              <- settings: Title, URL, Resolution, Captions, Voice
+ *   URL: https://example.com
+ *   goto https://example.com | Welcome! Let's sign up.
+ *   click text=Sign up | Click Sign up at the top.
+ *   type #email "demo@test.com" | Enter your email.
+ *   press Enter
+ *   scroll #pricing | Here are the plans.   (or: scroll 600)
+ *   wait 1500 | And you're in.
+ *
+ * One step per line; the text after " | " is the narration. Lines starting with # are notes.
+ * Returns { spec, errors }.
+ */
+export function parseScript(text) {
+	const src = String(text ?? "").replace(/^﻿/, "").trim();
+	if (!src) return { spec: null, errors: ["The script is empty. Paste a script first."] };
+	if (src.startsWith("{")) {
+		try {
+			return { spec: JSON.parse(src), errors: [] };
+		} catch (e) {
+			return { spec: null, errors: [`The script looks like JSON but isn't valid JSON: ${e.message}`] };
+		}
+	}
+	const spec = { steps: [] };
+	const errors = [];
+	const settings = { title: "title", url: "url", resolution: "resolution", captions: "captions", voice: "voice", fps: "fps" };
+	src.split(/\r?\n/).forEach((raw, i) => {
+		const line = raw.trim();
+		const where = `Line ${i + 1}`;
+		if (!line || line.startsWith("#") || line.startsWith("//")) return;
+		const setting = /^([A-Za-z]+)\s*:\s*(.*)$/.exec(line);
+		if (setting && setting[1].toLowerCase() === "account") {
+			// Account: admin | admin@site.com | MySecret1
+			const [id, email, ...pw] = setting[2].split("|").map((x) => x.trim());
+			if (!id || !email || !pw.length) {
+				errors.push(`${where}: write accounts as  Account: <name> | <email> | <password>  e.g. Account: admin | admin@site.com | Secret123`);
+				return;
+			}
+			// "-" as the email = a password-only login.
+			(spec.accounts ??= []).push({ id: id.toLowerCase().replace(/\s+/g, "-"), label: id, email: email === "-" ? "" : email, password: pw.join("|") });
+			return;
+		}
+		if (setting && setting[1].toLowerCase() === "login") {
+			spec.login = { url: setting[2].trim() };
+			return;
+		}
+		if (setting && settings[setting[1].toLowerCase()] && !/^(https?|file):/i.test(line)) {
+			const key = settings[setting[1].toLowerCase()];
+			let value = setting[2].trim();
+			if (key === "captions") value = /^(on|yes|true|1)$/i.test(value);
+			if (key === "fps") value = Number(value);
+			spec[key] = value;
+			return;
+		}
+		// "action args | narration" - split on the first " | " so selectors may contain "|"-free text.
+		const bar = line.search(/\s\|\s|\s\|$/);
+		const head = (bar >= 0 ? line.slice(0, bar) : line).trim();
+		const say = bar >= 0 ? line.slice(bar).replace(/^\s*\|\s*/, "").trim() : "";
+		const [rawWord, ...restParts] = head.split(/\s+/);
+		// "click? ..." marks a step optional: skipped (narration still plays) if it can't be done.
+		const optional = rawWord.endsWith("?");
+		const word = rawWord.replace(/\?$/, "");
+		const action = word.toLowerCase();
+		const rest = restParts.join(" ").trim();
+		const step = { action, ...(optional ? { optional: true } : {}) };
+		switch (action) {
+			case "switch":
+			case "as": {
+				// switch <account> [landing url]
+				step.action = "switch";
+				const [acc, landing] = rest.split(/\s+/);
+				step.account = (acc ?? "").toLowerCase();
+				if (landing) step.url = landing;
+				if (!acc) {
+					errors.push(`${where}: write  switch <account>  e.g. switch admin  (or switch guest for signed out)`);
+					return;
+				}
+				break;
+			}
+			case "goto":
+			case "open":
+				step.action = "goto";
+				step.url = rest;
+				break;
+			case "click":
+			case "hover":
+				step.selector = rest;
+				break;
+			case "type": {
+				// type <selector> "text"  - the text is the last quoted part
+				const m = /^(.*?)\s+(["'])(.*)\2\s*$/.exec(rest);
+				if (!m) {
+					errors.push(`${where}: write type steps as  type <field> "text to type"  e.g. type #email "demo@test.com"`);
+					return;
+				}
+				step.selector = m[1].trim();
+				step.text = m[3];
+				break;
+			}
+			case "press":
+				step.key = rest;
+				break;
+			case "scroll":
+				if (/^-?\d+$/.test(rest)) step.y = Number(rest);
+				else step.selector = rest;
+				break;
+			case "wait":
+			case "pause": {
+				step.action = "wait";
+				const ms = /^(\d+(?:\.\d+)?)\s*(ms|s)?$/i.exec(rest || "1000");
+				if (!ms) {
+					errors.push(`${where}: write wait steps as  wait 1500  (milliseconds) or  wait 2s`);
+					return;
+				}
+				step.ms = Math.round(Number(ms[1]) * (ms[2]?.toLowerCase() === "s" ? 1000 : 1));
+				break;
+			}
+			case "say":
+				// narration with no action: hold still while it is spoken
+				step.action = "wait";
+				step.ms = 0;
+				step.say = [rest, say].filter(Boolean).join(" | ");
+				spec.steps.push(step);
+				return;
+			default:
+				errors.push(`${where}: "${word}" is not a step. Start each line with goto, click, type, press, hover, scroll, wait or say.`);
+				return;
+		}
+		if (say) step.say = say;
+		spec.steps.push(step);
+	});
+	if (!spec.url) spec.url = spec.steps.find((s) => s.action === "goto")?.url;
+	// Mostly lines that aren't steps: this is a script written in plain English (e.g. a Loom
+	// script). Say so once, instead of listing every line.
+	const lines = src.split(/\r?\n/).filter((l) => l.trim() && !l.trim().startsWith("#"));
+	const notSteps = errors.filter((e) => /is not a step/.test(e)).length;
+	if (notSteps >= 3 && notSteps / lines.length >= 0.3) {
+		return { spec: null, prose: true, errors: ["This looks like a script written in plain English, not in the step format. Click “Convert with AI” to turn it into steps, or write it in the step format (see Script format below)."] };
+	}
+	return { spec, errors };
+}
 
 function isUrl(u) {
 	if (typeof u !== "string") return false;
@@ -70,6 +215,24 @@ export function validateSpec(spec) {
 	spec.fps ??= 30;
 	if (![24, 30, 60].includes(spec.fps)) errors.push('"fps" must be 24, 30 or 60.');
 	if (!Array.isArray(spec.steps) || spec.steps.length === 0) errors.push('"steps" is required: a non-empty list of steps.');
+	const accountIds = new Set(["guest"]);
+	// Account names are case-insensitive: store them lower-case.
+	if (Array.isArray(spec.accounts)) for (const a of spec.accounts) if (typeof a?.id === "string") a.id = a.id.trim().toLowerCase();
+	for (const s of Array.isArray(spec.steps) ? spec.steps : []) if (typeof s?.account === "string") s.account = s.account.trim().toLowerCase();
+	if (spec.accounts !== undefined) {
+		if (!Array.isArray(spec.accounts)) errors.push('"accounts" must be a list of { "id", "email", "password" }.');
+		else
+			spec.accounts.forEach((a, i) => {
+				if (!a || typeof a !== "object") return errors.push(`Account ${i + 1} must be an object.`);
+				if (!/^[a-z0-9][a-z0-9_-]{0,30}$/i.test(a.id ?? "")) errors.push(`Account ${i + 1}: "id" is required (a short name like "admin").`);
+				else if (accountIds.has(a.id.toLowerCase())) errors.push(`Account "${a.id}" is listed twice${a.id.toLowerCase() === "guest" ? ' ("guest" is reserved for signed out)' : ""}.`);
+				else accountIds.add(a.id.toLowerCase());
+				// Email may be empty for a password-only login page.
+				if (a.email !== undefined && a.email !== "" && (typeof a.email !== "string" || !a.email.includes("@"))) errors.push(`Account "${a.id ?? i + 1}": "email" must be an email address (or empty for a password-only login).`);
+				if (typeof a.password !== "string") errors.push(`Account "${a.id ?? i + 1}": "password" is required.`);
+			});
+	}
+	if (spec.login !== undefined && (typeof spec.login !== "object" || (spec.login.url !== undefined && !isUrl(spec.login.url)))) errors.push('"login" must be { "url": "https://.../login" } (optional "emailSelector", "passwordSelector", "submitSelector").');
 
 	(spec.steps ?? []).forEach((step, i) => {
 		const where = `Step ${i + 1}`;
@@ -84,6 +247,11 @@ export function validateSpec(spec) {
 		if (step.ms !== undefined && !(Number.isFinite(step.ms) && step.ms >= 0)) errors.push(`${where}: "ms" must be a number of milliseconds.`);
 		if (step.pause !== undefined && !(Number.isFinite(step.pause) && step.pause >= 0)) errors.push(`${where}: "pause" must be a number of milliseconds.`);
 		if (step.action === "scroll" && step.selector === undefined && !Number.isFinite(step.y)) errors.push(`${where} (scroll) needs "selector" or "y" (pixels), e.g. ${def.help}`);
+		if (step.action === "switch" && step.account && !accountIds.has(String(step.account).toLowerCase())) {
+			errors.push(`${where} (switch): no account "${step.account}". Add it under "accounts" (Account: line), or use "guest" for signed out.`);
+		}
+		if (step.action === "switch" && step.url !== undefined && !isUrl(step.url)) errors.push(`${where} (switch): "${step.url}" is not a full address.`);
+		if (step.optional !== undefined && typeof step.optional !== "boolean") errors.push(`${where}: "optional" must be true or false.`);
 	});
 	spec.quality = RESOLUTIONS[spec.resolution];
 	spec.slug = slugify(spec.title);
