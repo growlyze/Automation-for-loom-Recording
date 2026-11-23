@@ -1,0 +1,20 @@
+{
+  "name": "demo-recorder",
+  "version": "1.0.0",
+  "description": "Script + URL + steps -> narrated demo MP4 with OpenScreen",
+  "scripts": {
+    "make": "node src/make.mjs",
+    "mcp-tools": "node scripts/mcp-tools.mjs",
+    "smoke": "node scripts/smoke.mjs",
+    "ui": "node src/ui-server.mjs",
+    "voices": "node scripts/voices.mjs"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "type": "module",
+  "dependencies": {
+    "@modelcontextprotocol/sdk": "^1.32.2",
+    "playwright": "^1.65.1"
+  }
+}

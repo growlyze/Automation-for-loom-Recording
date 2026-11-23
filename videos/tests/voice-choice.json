@@ -1,0 +1,9 @@
+{
+  "title": "Test - voice choice",
+  "url": "https://example.com",
+  "voice": "cjVigY5qzO86Huf0OWal",
+  "captions": false,
+  "steps": [
+    { "action": "goto", "url": "https://example.com", "say": "This video uses the voice picked in the script." }
+  ]
+}

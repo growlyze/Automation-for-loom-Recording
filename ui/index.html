@@ -1,0 +1,550 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Demo Recorder</title>
+<style>
+:root {
+  --bg: #f6f7f9; --surface: #ffffff; --surface-2: #f0f2f5; --border: #dfe3e8;
+  --text: #16191d; --muted: #5d6773; --accent: #2f6fed; --accent-text: #ffffff;
+  --ok: #1a7f4b; --ok-bg: #e3f4ea; --bad: #c4321c; --bad-bg: #fbe7e3; --warn: #8a5a00; --warn-bg: #fdf1d8;
+  --shadow: 0 1px 2px rgba(16,24,40,.06), 0 1px 3px rgba(16,24,40,.08);
+  --radius: 10px; --mono: ui-monospace, "Cascadia Code", Consolas, monospace;
+  color-scheme: light;
+}
+@media (prefers-color-scheme: dark) {
+  :root {
+    --bg: #111317; --surface: #1a1d22; --surface-2: #22262c; --border: #2f343b;
+    --text: #e8eaed; --muted: #9aa3ad; --accent: #5b8ff9; --accent-text: #0b1020;
+    --ok: #5fd197; --ok-bg: #173325; --bad: #ff8a75; --bad-bg: #3a1d18; --warn: #f0c060; --warn-bg: #3a2e14;
+    --shadow: 0 1px 2px rgba(0,0,0,.4); color-scheme: dark;
+  }
+}
+* { box-sizing: border-box; }
+body { margin: 0; background: var(--bg); color: var(--text); font: 14px/1.5 "Segoe UI", system-ui, sans-serif; }
+a { color: var(--accent); text-decoration: none; }
+header { position: sticky; top: 0; z-index: 5; background: var(--surface); border-bottom: 1px solid var(--border); }
+.bar { max-width: 1200px; margin: 0 auto; padding: 10px 20px; display: flex; align-items: center; gap: 16px; flex-wrap: wrap; }
+.brand { font-weight: 650; font-size: 16px; display: flex; align-items: center; gap: 8px; }
+.brand .dot { width: 10px; height: 10px; border-radius: 50%; background: var(--bad); }
+nav { display: flex; gap: 4px; }
+nav a { padding: 6px 12px; border-radius: 8px; color: var(--muted); font-weight: 500; }
+nav a.on { background: var(--surface-2); color: var(--text); }
+.voice { margin-left: auto; font-size: 12px; color: var(--muted); }
+main { max-width: 1200px; margin: 0 auto; padding: 20px 20px 220px; }
+h1 { font-size: 20px; margin: 0 0 4px; }
+h2 { font-size: 15px; margin: 0 0 10px; }
+.sub { color: var(--muted); margin: 0 0 18px; }
+.row { display: flex; gap: 10px; align-items: center; flex-wrap: wrap; }
+.spacer { flex: 1; }
+button, .btn { font: inherit; border: 1px solid var(--border); background: var(--surface); color: var(--text); padding: 7px 14px; border-radius: 8px; cursor: pointer; display: inline-flex; align-items: center; gap: 6px; white-space: nowrap; }
+button:hover, .btn:hover { background: var(--surface-2); }
+button.primary, .btn.primary { background: var(--accent); color: var(--accent-text); border-color: var(--accent); font-weight: 600; }
+button.primary:hover, .btn.primary:hover { filter: brightness(1.07); }
+button.danger { color: var(--bad); }
+button.small, .btn.small { padding: 3px 9px; font-size: 12px; }
+button:disabled { opacity: .5; cursor: not-allowed; }
+input, select, textarea { font: inherit; color: var(--text); background: var(--surface); border: 1px solid var(--border); border-radius: 8px; padding: 7px 10px; width: 100%; }
+textarea { resize: vertical; min-height: 38px; }
+input:focus, select:focus, textarea:focus { outline: 2px solid var(--accent); outline-offset: -1px; }
+label { display: block; font-size: 12px; font-weight: 600; color: var(--muted); margin-bottom: 4px; }
+.card { background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius); box-shadow: var(--shadow); }
+.pad { padding: 16px; }
+.grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(280px, 1fr)); gap: 16px; }
+.vcard { overflow: hidden; cursor: pointer; display: flex; flex-direction: column; }
+.vcard:hover { border-color: var(--accent); }
+.thumb { aspect-ratio: 16/9; background: var(--surface-2); display: grid; place-items: center; color: var(--muted); position: relative; }
+.thumb video { width: 100%; height: 100%; object-fit: cover; display: block; }
+.thumb .dur { position: absolute; right: 8px; bottom: 8px; background: rgba(0,0,0,.72); color: #fff; font-size: 12px; padding: 1px 7px; border-radius: 6px; }
+.vcard .meta { padding: 10px 14px 14px; }
+.vcard .t { font-weight: 600; }
+.badge { display: inline-block; font-size: 11px; font-weight: 600; padding: 1px 8px; border-radius: 99px; }
+.b-ready { background: var(--ok-bg); color: var(--ok); } .b-failed { background: var(--bad-bg); color: var(--bad); }
+.b-incomplete, .b-open { background: var(--warn-bg); color: var(--warn); } .b-done { background: var(--surface-2); color: var(--muted); }
+.b-running { background: var(--warn-bg); color: var(--warn); }
+.muted { color: var(--muted); } .small-t { font-size: 12px; }
+.empty { text-align: center; padding: 48px 16px; color: var(--muted); }
+.two { display: grid; grid-template-columns: minmax(0, 1.7fr) minmax(300px, 1fr); gap: 20px; align-items: start; }
+@media (max-width: 900px) { .two { grid-template-columns: 1fr; } }
+.player { width: 100%; display: block; border-radius: var(--radius); background: #000; aspect-ratio: 16/9; }
+.steps { list-style: none; margin: 0; padding: 0; }
+.steps li { display: grid; grid-template-columns: 54px 1fr; gap: 10px; padding: 8px 10px; border-radius: 8px; cursor: pointer; }
+.steps li:hover { background: var(--surface-2); }
+.steps li.now { background: var(--surface-2); box-shadow: inset 3px 0 0 var(--accent); }
+.ts { font-family: var(--mono); font-size: 12px; color: var(--accent); padding-top: 1px; }
+.act { font-family: var(--mono); font-size: 11px; color: var(--muted); text-transform: uppercase; }
+.req { border-top: 1px solid var(--border); padding: 10px 0; }
+.req.done .txt { text-decoration: line-through; color: var(--muted); }
+.req .txt { white-space: pre-wrap; }
+.stepcard { border: 1px solid var(--border); border-radius: var(--radius); padding: 12px; margin-bottom: 10px; background: var(--surface); }
+.stepcard .head { display: flex; gap: 8px; align-items: center; margin-bottom: 10px; }
+.stepcard .num { font-weight: 700; color: var(--muted); width: 26px; }
+.fields { display: grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); gap: 10px; }
+.fields .wide { grid-column: 1 / -1; }
+.errors { background: var(--bad-bg); color: var(--bad); border-radius: 8px; padding: 10px 14px; margin-bottom: 14px; white-space: pre-wrap; }
+.errors:empty { display: none; }
+.hint { font-size: 12px; color: var(--muted); margin-top: 4px; }
+pre.json { font-family: var(--mono); font-size: 12px; }
+textarea.json { font-family: var(--mono); font-size: 12px; min-height: 420px; }
+.jobdock { position: fixed; left: 0; right: 0; bottom: 0; z-index: 10; background: var(--surface); border-top: 1px solid var(--border); box-shadow: 0 -4px 16px rgba(0,0,0,.08); }
+.jobdock .in { max-width: 1200px; margin: 0 auto; padding: 10px 20px; }
+.jobdock pre { margin: 8px 0 0; max-height: 150px; overflow: auto; font: 12px/1.45 var(--mono); background: var(--surface-2); padding: 8px 10px; border-radius: 8px; white-space: pre-wrap; }
+.jobdock.min pre { display: none; }
+.spin { width: 12px; height: 12px; border: 2px solid currentColor; border-right-color: transparent; border-radius: 50%; display: inline-block; animation: s 0.8s linear infinite; }
+@keyframes s { to { transform: rotate(360deg); } }
+.toast { position: fixed; top: 64px; right: 20px; z-index: 20; background: var(--text); color: var(--bg); padding: 10px 16px; border-radius: 8px; box-shadow: var(--shadow); max-width: 380px; }
+.tabs { display: flex; gap: 4px; margin-bottom: 12px; }
+.tabs button.on { background: var(--surface-2); font-weight: 600; }
+@media (max-width: 600px) { .bar, main, .jobdock .in { padding-left: 16px; padding-right: 16px; } .voice { display: none; } }
+</style>
+</head>
+<body>
+<header>
+  <div class="bar">
+    <div class="brand"><span class="dot"></span>Demo Recorder</div>
+    <nav>
+      <a href="#/videos" data-nav="videos">Videos</a>
+      <a href="#/scripts" data-nav="scripts">Scripts</a>
+      <a href="#/script/new" data-nav="new">+ New script</a>
+    </nav>
+    <div class="voice" id="voice"></div>
+    <div id="shareState" class="small-t"></div>
+    <a href="/logout" id="logout" class="small-t" hidden title="Lock the workspace">🔒 Lock</a>
+  </div>
+</header>
+<main id="app"></main>
+<div class="jobdock" id="dock" hidden></div>
+
+<script>
+const $ = (s, el = document) => el.querySelector(s);
+const esc = (s) => String(s ?? "").replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
+const fmt = (ms) => { if (ms == null) return ""; const s = Math.floor(ms / 1000); return `${Math.floor(s / 60)}:${String(s % 60).padStart(2, "0")}`; };
+const fmtSec = (sec) => fmt(sec * 1000);
+const mb = (b) => `${(b / 1048576).toFixed(1)} MB`;
+const ago = (d) => { const s = (Date.now() - new Date(d)) / 1000; if (s < 60) return "just now"; if (s < 3600) return `${Math.floor(s / 60)} min ago`; if (s < 86400) return `${Math.floor(s / 3600)} h ago`; return new Date(d).toLocaleDateString(); };
+
+async function api(path, opts = {}) {
+  const res = await fetch(path, { ...opts, headers: { "content-type": "application/json" }, body: opts.body ? JSON.stringify(opts.body) : undefined });
+  const data = await res.json().catch(() => ({}));
+  if (res.status === 401 && data.login) { location.href = data.login; throw new Error("Locked"); }
+  if (!res.ok) { const e = new Error(data.error || (data.errors ? data.errors.join("\n") : `Error ${res.status}`)); e.errors = data.errors; throw e; }
+  return data;
+}
+function toast(msg, ms = 3500) {
+  const t = document.createElement("div"); t.className = "toast"; t.textContent = msg; document.body.append(t);
+  setTimeout(() => t.remove(), ms);
+}
+
+// ---------------- job dock (live progress) ----------------
+let job = null, dockMin = false;
+function renderDock() {
+  const dock = $("#dock");
+  if (!job) { dock.hidden = true; return; }
+  dock.hidden = false;
+  dock.classList.toggle("min", dockMin);
+  const running = job.status === "running";
+  const badge = running ? `<span class="badge b-running"><span class="spin"></span> Recording</span>` : job.status === "done" ? `<span class="badge b-ready">Finished</span>` : `<span class="badge b-failed">Failed</span>`;
+  dock.innerHTML = `<div class="in">
+    <div class="row">${badge}<strong>${esc(job.title)}</strong>
+      <span class="muted small-t">${running ? "The browser takes over the screen while it records. Don't touch the mouse or keyboard." : ""}</span>
+      <span class="spacer"></span>
+      ${!running && job.status === "done" ? `<a class="btn small primary" href="#/video/${job.slug}">Watch</a>` : ""}
+      ${!running && job.status === "failed" ? `<a class="btn small" href="#/script/${job.script}">Fix script</a>` : ""}
+      <button class="small" id="dockToggle">${dockMin ? "Show log" : "Hide log"}</button>
+      ${!running ? `<button class="small" id="dockClose">Close</button>` : ""}
+    </div>
+    <pre id="dockLog">${esc(job.lines.join("\n"))}</pre></div>`;
+  const pre = $("#dockLog"); pre.scrollTop = pre.scrollHeight;
+  $("#dockToggle").onclick = () => { dockMin = !dockMin; renderDock(); };
+  if ($("#dockClose")) $("#dockClose").onclick = () => { job = null; renderDock(); };
+}
+const es = new EventSource("/api/events");
+es.addEventListener("job", (e) => {
+  const j = JSON.parse(e.data);
+  const wasRunning = job?.status === "running" && job.id === j?.id;
+  if (j) { job = j; renderDock(); }
+  if (wasRunning && j.status !== "running") {
+    toast(j.status === "done" ? `"${j.title}" is ready.` : `"${j.title}" failed. See the log.`);
+    route();
+  }
+});
+es.addEventListener("line", (e) => {
+  const { id, line } = JSON.parse(e.data);
+  if (!job || job.id !== id) return;
+  job.lines.push(line);
+  const pre = $("#dockLog");
+  if (pre) { pre.textContent += (pre.textContent ? "\n" : "") + line; pre.scrollTop = pre.scrollHeight; }
+});
+
+async function generate(script, title) {
+  try {
+    const j = await api("/api/jobs", { method: "POST", body: { script } });
+    job = j; dockMin = false; renderDock();
+    toast(`Recording "${title}". The browser will open full screen in a moment.`);
+  } catch (e) { alert(e.message); }
+}
+
+// ---------------- router ----------------
+window.addEventListener("hashchange", route);
+async function route() {
+  const h = location.hash || "#/videos";
+  const [, view, arg] = h.split("/");
+  document.querySelectorAll("nav a").forEach((a) => a.classList.toggle("on", a.dataset.nav === (view === "script" && arg === "new" ? "new" : view === "video" ? "videos" : view === "script" ? "scripts" : view)));
+  const app = $("#app");
+  try {
+    if (view === "video") return await viewVideo(app, arg);
+    if (view === "scripts") return await viewScripts(app);
+    if (view === "script") return await viewEditor(app, arg);
+    return await viewVideos(app);
+  } catch (e) { app.innerHTML = `<div class="errors">${esc(e.message)}</div>`; }
+}
+
+// ---------------- videos ----------------
+async function viewVideos(app) {
+  const vids = await api("/api/videos");
+  app.innerHTML = `<div class="row"><div><h1>Videos</h1><p class="sub">Every generated demo. Click one to watch it, download it or ask for changes.</p></div>
+    <span class="spacer"></span><a class="btn primary" href="#/script/new">+ New script</a></div>
+    ${vids.length ? `<div class="grid">${vids.map((v) => `
+      <div class="card vcard" data-slug="${v.slug}">
+        <div class="thumb">${v.status === "ready" ? `<video src="/media/${v.slug}/${v.slug}.mp4#t=2" preload="metadata" muted></video><span class="dur">${fmt(v.durationMs)}</span>` : `<span>${v.status === "failed" ? "Recording failed" : "No video"}</span>`}</div>
+        <div class="meta"><div class="row"><span class="t">${esc(v.title)}</span><span class="spacer"></span><span class="badge b-${v.status}">${v.status}</span></div>
+        <div class="muted small-t">${ago(v.updatedAt)}${v.status === "ready" ? ` · ${mb(v.sizeBytes)}` : ""}${v.share ? ` · 🔗 shared, ${v.share.views} view${v.share.views === 1 ? "" : "s"}` : ""}${v.openRequests ? ` · <strong>${v.openRequests} open edit request${v.openRequests > 1 ? "s" : ""}</strong>` : ""}</div></div>
+      </div>`).join("")}</div>` : `<div class="card empty">No videos yet. <a href="#/script/new">Write a script</a> and click <strong>Generate video</strong>.</div>`}`;
+  app.querySelectorAll(".vcard").forEach((c) => (c.onclick = () => (location.hash = `#/video/${c.dataset.slug}`)));
+}
+
+async function viewVideo(app, slug) {
+  const v = await api(`/api/videos/${slug}`);
+  const reqs = await api(`/api/videos/${slug}/requests`);
+  const ready = v.status === "ready";
+  app.innerHTML = `
+    <div class="row" style="margin-bottom:14px"><a href="#/videos">← Videos</a></div>
+    <div class="row" style="margin-bottom:14px"><div><h1>${esc(v.title)}</h1>
+      <div class="muted small-t"><span class="badge b-${v.status}">${v.status}</span> ${ago(v.updatedAt)}${v.durationMs ? ` · ${fmt(v.durationMs)}` : ""}${ready ? ` · ${mb(v.sizeBytes)}` : ""}${v.voice ? ` · voice: ${v.voice === "elevenlabs" ? esc(v.voiceName?.split(" - ")[0] ?? "ElevenLabs") : "Windows (fallback)"}` : ""}${v.captions ? " · captions" : ""}</div></div>
+      <span class="spacer"></span>
+      ${ready ? `<a class="btn primary" href="/media/${slug}/${slug}.mp4?download">⬇ Download MP4</a>` : ""}
+      ${v.script ? `<a class="btn" href="#/script/${v.script}">Edit script</a><button id="regen">↻ Re-generate</button>` : ""}
+      <button class="danger" id="del">Delete</button>
+    </div>
+    ${v.error ? `<div class="errors">${esc(v.error)}</div>` : ""}
+    <div class="two">
+      <div>
+        ${ready ? `<video class="player" id="player" src="/media/${slug}/${slug}.mp4" controls preload="metadata"><track kind="subtitles" srclang="en" label="English" src="/api/videos/${slug}/transcript.vtt"${v.captions ? "" : " default"}></video>` : v.files.includes("failure.png") ? `<img class="player" style="object-fit:contain" src="/media/${slug}/failure.png" alt="Browser at the moment of failure">` : `<div class="card empty">No video file.</div>`}
+        ${v.steps.length ? `<div class="card pad" style="margin-top:16px">
+          <div class="row" style="margin-bottom:8px"><div class="tabs" style="margin:0"><button data-tab="tx" class="on">Transcript</button><button data-tab="st">Steps</button></div>
+            <span class="spacer"></span>
+            <button class="small" id="copyTx">Copy</button>
+            <a class="btn small" href="/api/videos/${slug}/transcript.txt?download">.txt</a>
+            <a class="btn small" href="/api/videos/${slug}/transcript.srt?download">.srt</a>
+            <a class="btn small" href="/api/videos/${slug}/transcript.vtt?download">.vtt</a></div>
+          <ul class="steps" id="tx">${v.transcript.length ? v.transcript.map((l) => `
+            <li data-at="${l.startMs / 1000}" data-step="${l.step}"><span class="ts">${fmtSec(l.startMs / 1000)}</span><div>${esc(l.text)}</div></li>`).join("") : `<li class="muted">This video has no narration.</li>`}</ul>
+          <ul class="steps" id="steps" hidden>${v.steps.map((s) => `
+            <li data-at="${s.startMs / 1000}" data-step="${s.step}"><span class="ts">${fmtSec(s.startMs / 1000)}</span>
+            <div><span class="act">${s.step}. ${esc(s.action)}</span><div>${s.say ? esc(s.say) : `<span class="muted">(no narration)</span>`}</div></div></li>`).join("")}</ul>
+          <p class="hint">Click a line to jump there. The transcript is the script's exact text, timed to when each line is spoken.</p></div>` : ""}
+        <div class="card pad" style="margin-top:16px"><h2>Files</h2><div class="row">
+          ${v.files.filter((f) => !f.startsWith("_")).map((f) => `<a class="btn small" href="/media/${slug}/${encodeURIComponent(f)}?download">${esc(f)}</a>`).join("")}</div>
+          <p class="hint">The OpenScreen project (for manual touch-ups) is in <code>output/${slug}/project/</code> and in OpenScreen's project list.</p></div>
+      </div>
+      <div>
+      ${ready ? `<div class="card pad" style="margin-bottom:16px" id="sharePanel">${shareHtml(v)}</div>` : ""}
+      <div class="card pad">
+        <h2>Edit requests</h2>
+        <p class="muted small-t" style="margin-top:-4px">Note what should change, at the moment it happens. Then edit the script and re-generate, or ask Claude Code: <em>"apply the open edit requests for ${slug}"</em>.</p>
+        <textarea id="reqText" rows="3" placeholder="e.g. Say 'sign up' instead of 'register' here, and pause longer on the pricing page."></textarea>
+        <div class="row" style="margin-top:8px">
+          ${ready ? `<label style="margin:0;display:flex;gap:6px;align-items:center;font-weight:500"><input type="checkbox" id="reqAt" checked style="width:auto"> at <span id="reqTime" class="ts">0:00</span></label>` : ""}
+          <select id="reqStep" style="width:auto;max-width:170px"><option value="">Any step</option>${v.steps.map((s) => `<option value="${s.step}">Step ${s.step} (${esc(s.action)})</option>`).join("")}</select>
+          <span class="spacer"></span><button class="primary" id="reqAdd">Add request</button>
+        </div>
+        <div id="reqList" style="margin-top:12px">${reqs.length ? reqs.slice().reverse().map((r) => `
+          <div class="req ${r.status}" data-id="${r.id}">
+            <div class="row small-t"><span class="badge b-${r.status}">${r.status}</span>
+              ${r.atSec != null ? `<a href="#" class="ts" data-seek="${r.atSec}">${fmtSec(r.atSec)}</a>` : ""}
+              ${r.step ? `<span class="muted">step ${r.step}</span>` : ""}<span class="muted">${ago(r.createdAt)}</span><span class="spacer"></span>
+              <button class="small" data-toggle>${r.status === "done" ? "Reopen" : "Mark done"}</button><button class="small danger" data-remove>✕</button></div>
+            <div class="txt" style="margin-top:4px">${esc(r.text)}</div>
+            ${r.note ? `<div class="hint">${esc(r.note)}</div>` : ""}
+          </div>`).join("") : `<p class="muted small-t">No requests yet.</p>`}</div>
+      </div>
+      </div>
+    </div>`;
+
+  const player = $("#player");
+  const rows = [...app.querySelectorAll("#steps li[data-at], #tx li[data-at]")];
+  rows.forEach((li) => (li.onclick = () => { if (player) { player.currentTime = Number(li.dataset.at); player.play(); } if (li.dataset.step) $("#reqStep").value = li.dataset.step; }));
+  app.querySelectorAll("[data-tab]").forEach((b) => (b.onclick = () => {
+    app.querySelectorAll("[data-tab]").forEach((x) => x.classList.toggle("on", x === b));
+    $("#tx").hidden = b.dataset.tab !== "tx"; $("#steps").hidden = b.dataset.tab !== "st";
+  }));
+  if ($("#copyTx")) $("#copyTx").onclick = async () => {
+    const text = await (await fetch(`/api/videos/${slug}/transcript.txt`)).text();
+    try { await navigator.clipboard.writeText(text); toast("Transcript copied."); } catch { prompt("Copy the transcript:", text); }
+  };
+  if (player) player.ontimeupdate = () => {
+    const t = player.currentTime;
+    if ($("#reqTime")) $("#reqTime").textContent = fmtSec(t);
+    for (const list of [$("#tx"), $("#steps")]) {
+      if (!list) continue;
+      const items = [...list.querySelectorAll("li[data-at]")];
+      let cur = null; for (const li of items) if (Number(li.dataset.at) <= t + 0.05) cur = li;
+      items.forEach((li) => li.classList.toggle("now", li === cur));
+    }
+  };
+  bindShare(v);
+  app.querySelectorAll("[data-seek]").forEach((a) => (a.onclick = (e) => { e.preventDefault(); if (player) { player.currentTime = Number(a.dataset.seek); player.play(); } }));
+  $("#reqAdd").onclick = async () => {
+    const text = $("#reqText").value;
+    const atSec = player && $("#reqAt")?.checked ? player.currentTime : undefined;
+    const step = $("#reqStep").value ? Number($("#reqStep").value) : undefined;
+    try { await api(`/api/videos/${slug}/requests`, { method: "POST", body: { text, atSec, step } }); toast("Edit request saved."); viewVideo(app, slug); } catch (e) { alert(e.message); }
+  };
+  app.querySelectorAll(".req").forEach((el) => {
+    const id = el.dataset.id;
+    el.querySelector("[data-toggle]").onclick = async () => { await api(`/api/videos/${slug}/requests/${id}`, { method: "PATCH", body: { status: el.classList.contains("done") ? "open" : "done" } }); viewVideo(app, slug); };
+    el.querySelector("[data-remove]").onclick = async () => { if (confirm("Delete this request?")) { await api(`/api/videos/${slug}/requests/${id}`, { method: "DELETE" }); viewVideo(app, slug); } };
+  });
+  if ($("#regen")) $("#regen").onclick = () => generate(v.script, v.title);
+  $("#del").onclick = async () => {
+    if (!confirm(`Delete the video "${v.title}" and its files? The script and edit requests are kept.`)) return;
+    try { await api(`/api/videos/${slug}`, { method: "DELETE" }); location.hash = "#/videos"; } catch (e) { alert(e.message); }
+  };
+}
+
+// ---------------- sharing ----------------
+let tunnel = { status: "stopped" };
+function tunnelLabel() {
+  return { on: "Public sharing on", starting: "Public sharing starting…", stopping: "Stopping…", error: "Public sharing error", stopped: "Public sharing off" }[tunnel.status] ?? tunnel.status;
+}
+function renderHeaderShare() {
+  const el = $("#shareState"); if (!el) return;
+  const cls = tunnel.status === "on" ? "b-ready" : tunnel.status === "error" ? "b-failed" : tunnel.status === "starting" ? "b-running" : "b-done";
+  el.innerHTML = `<span class="badge ${cls}">${tunnelLabel()}</span>`;
+  el.title = tunnel.error || tunnel.url || "";
+}
+function shareHtml(v) {
+  const s = v.share;
+  if (!s) return `<h2>Share</h2><p class="muted small-t" style="margin-top:-4px">Create a link anyone can open: a page with this video, its transcript and a download button. It doesn't give access to anything else here, and you can turn it off at any time.</p>
+    <button class="primary" id="shareOn">🔗 Create share link</button>`;
+  const link = s.url;
+  return `<div class="row"><h2 style="margin:0">Share</h2><span class="spacer"></span><span class="muted small-t">${s.views} view${s.views === 1 ? "" : "s"}${s.lastViewedAt ? ` · last ${ago(s.lastViewedAt)}` : ""}</span></div>
+    ${link ? `<div class="row" style="margin-top:10px;flex-wrap:nowrap"><input id="shareUrl" readonly value="${esc(link)}" onclick="this.select()"><button class="primary" id="shareCopy">Copy</button></div>
+      <div class="row" style="margin-top:8px"><a class="btn small" href="${esc(link)}" target="_blank" rel="noopener">Open link ↗</a><span class="spacer"></span><button class="small danger" id="shareOff">Turn off link</button></div>
+      ${tunnel.mode === "quick" ? `<p class="hint">Works while this PC and the UI are running. This free link's address changes when the UI restarts; see README for a permanent address.</p>` : ""}`
+    : `<p class="small-t" style="margin:10px 0">${tunnel.status === "starting" ? `<span class="spin"></span> Getting a public address…` : tunnel.status === "error" ? `<span style="color:var(--bad)">${esc(tunnel.error)}</span>` : "Public sharing is off."}</p>
+      <div class="row">${tunnel.status === "starting" ? "" : `<button class="primary small" id="tunnelOn">Turn public sharing on</button>`}<span class="spacer"></span><button class="small danger" id="shareOff">Turn off link</button></div>`}`;
+}
+function bindShare(v) {
+  const panel = $("#sharePanel"); if (!panel) return;
+  const rerender = async () => { const fresh = await api(`/api/videos/${v.slug}`); Object.assign(v, fresh); panel.innerHTML = shareHtml(v); bindShare(v); };
+  panel.dataset.slug = v.slug; panel._rerender = rerender;
+  if ($("#shareOn")) $("#shareOn").onclick = async () => { try { await api(`/api/videos/${v.slug}/share`, { method: "POST" }); rerender(); } catch (e) { alert(e.message); } };
+  if ($("#shareOff")) $("#shareOff").onclick = async () => { if (!confirm("Turn off this link? Anyone who has it will no longer be able to watch. A new link can be created later (it will be a different address).")) return; await api(`/api/videos/${v.slug}/share`, { method: "DELETE" }); rerender(); };
+  if ($("#tunnelOn")) $("#tunnelOn").onclick = async () => { await api("/api/tunnel", { method: "POST", body: { action: "start" } }); };
+  if ($("#shareCopy")) $("#shareCopy").onclick = async () => { try { await navigator.clipboard.writeText($("#shareUrl").value); toast("Link copied."); } catch { $("#shareUrl").select(); } };
+}
+es.addEventListener("tunnel", (e) => {
+  tunnel = JSON.parse(e.data) ?? tunnel; renderHeaderShare();
+  const panel = $("#sharePanel"); if (panel?._rerender) panel._rerender();
+});
+
+// ---------------- scripts ----------------
+async function viewScripts(app) {
+  const list = await api("/api/scripts");
+  app.innerHTML = `<div class="row"><div><h1>Scripts</h1><p class="sub">One script per video: the page, the steps and what the voice says.</p></div>
+    <span class="spacer"></span><a class="btn primary" href="#/script/new">+ New script</a></div>
+    ${list.length ? `<div class="card">${list.map((s, i) => `
+      <div class="row pad" style="${i ? "border-top:1px solid var(--border)" : ""}">
+        <div><a href="#/script/${s.name}"><strong>${esc(s.title)}</strong></a><div class="muted small-t">videos/${esc(s.name)}.json · ${s.steps} steps · edited ${ago(s.updatedAt)}</div></div>
+        <span class="spacer"></span>
+        <a class="btn small" href="#/script/${s.name}">Edit</a>
+        <button class="small primary" data-gen="${s.name}" data-title="${esc(s.title)}">Generate video</button>
+      </div>`).join("")}</div>` : `<div class="card empty">No scripts yet.</div>`}`;
+  app.querySelectorAll("[data-gen]").forEach((b) => (b.onclick = () => generate(b.dataset.gen, b.dataset.title)));
+}
+
+const ACTIONS = {
+  goto:  { label: "Open a page", fields: [["url", "URL", "https://example.com/pricing"]] },
+  click: { label: "Click", fields: [["selector", "Element", "text=Sign up"]] },
+  type:  { label: "Type text", fields: [["selector", "Field", "#email"], ["text", "Text to type", "demo@test.com"]] },
+  press: { label: "Press a key", fields: [["key", "Key", "Enter"]] },
+  hover: { label: "Hover", fields: [["selector", "Element", ".menu"]] },
+  scroll:{ label: "Scroll", fields: [["selector", "To element (or leave empty)", "#pricing"], ["y", "…or by pixels", "600", "number"]] },
+  wait:  { label: "Wait", fields: [["ms", "Milliseconds", "1500", "number"]] },
+};
+const BLANK = { title: "", url: "https://", resolution: "1920x1080", captions: true, steps: [{ action: "goto", url: "https://", say: "" }] };
+
+// ---------------- voice picker ----------------
+let voicesData = null;
+async function loadVoices() {
+  if (!voicesData) voicesData = await api("/api/voices").catch((e) => ({ available: false, reason: e.message, voices: [] }));
+  return voicesData;
+}
+const voiceDesc = (v) => [v.gender, v.accent, v.age?.replace("_", " "), v.useCase?.replaceAll("_", " ")].filter(Boolean).join(" · ");
+function voiceFieldHtml(selected) {
+  const d = voicesData;
+  if (!d?.available) return `<label>Voice</label><select disabled><option>Windows offline voice</option></select><div class="hint">${esc(d?.reason ?? "")}</div>`;
+  const def = d.voices.find((v) => v.id === d.defaultId);
+  const opt = (v) => `<option value="${v.id}" ${v.id === selected ? "selected" : ""}>${esc(v.name.split(" - ")[0])}${v.name.includes(" - ") ? ` – ${esc(v.name.split(" - ").slice(1).join(" - "))}` : ""}</option>`;
+  const own = d.voices.filter((v) => v.category !== "premade");
+  const premade = d.voices.filter((v) => v.category === "premade");
+  const unknown = selected && !d.voices.some((v) => v.id === selected) ? `<option value="${esc(selected)}" selected>${esc(selected)} (not on this account)</option>` : "";
+  return `<label>Voice <span class="muted" style="font-weight:400">— who narrates this video</span></label>
+    <div class="row" style="flex-wrap:nowrap">
+      <select id="f-voice">
+        <option value="" ${!selected ? "selected" : ""}>Default${def ? ` (${esc(def.name.split(" - ")[0])})` : ""}</option>${unknown}
+        ${own.length ? `<optgroup label="Your voices">${own.map(opt).join("")}</optgroup>` : ""}
+        <optgroup label="ElevenLabs voices">${premade.map(opt).join("")}</optgroup>
+      </select>
+      <button type="button" id="voicePlay" style="flex:none">▶ Preview</button>
+    </div>
+    <div class="hint" id="voiceDesc"></div>`;
+}
+let previewAudio = null;
+function bindVoiceField() {
+  const sel = $("#f-voice"); if (!sel) return;
+  const current = () => voicesData.voices.find((v) => v.id === (sel.value || voicesData.defaultId));
+  const describe = () => {
+    const v = current();
+    $("#voiceDesc").textContent = v ? `${v.name}${voiceDesc(v) ? ` — ${voiceDesc(v)}` : ""}${v.category && v.category !== "premade" ? ` (${v.category})` : ""}` : "";
+    $("#voicePlay").disabled = !v?.previewUrl;
+  };
+  const stop = () => { if (previewAudio) { previewAudio.pause(); previewAudio = null; } $("#voicePlay").textContent = "▶ Preview"; };
+  sel.onchange = () => { stop(); describe(); };
+  $("#voicePlay").onclick = () => {
+    if (previewAudio) return stop();
+    const v = current(); if (!v?.previewUrl) return;
+    previewAudio = new Audio(v.previewUrl);
+    previewAudio.onended = stop;
+    previewAudio.play().catch(() => { stop(); toast("Could not play the preview."); });
+    $("#voicePlay").textContent = "■ Stop";
+  };
+  describe();
+}
+
+async function viewEditor(app, name) {
+  const isNew = name === "new";
+  await loadVoices();
+  let spec = isNew ? structuredClone(BLANK) : await api(`/api/scripts/${name}`);
+  let mode = "form";
+
+  function stepHtml(s, i) {
+    const def = ACTIONS[s.action] ?? ACTIONS.click;
+    return `<div class="stepcard" data-i="${i}">
+      <div class="head"><span class="num">${i + 1}</span>
+        <select data-k="action" style="width:auto">${Object.entries(ACTIONS).map(([k, a]) => `<option value="${k}" ${k === s.action ? "selected" : ""}>${a.label}</option>`).join("")}</select>
+        <span class="spacer"></span>
+        <button class="small" data-move="-1" ${i === 0 ? "disabled" : ""} title="Move up">↑</button>
+        <button class="small" data-move="1" ${i === spec.steps.length - 1 ? "disabled" : ""} title="Move down">↓</button>
+        <button class="small" data-dup title="Duplicate">⧉</button>
+        <button class="small danger" data-rm title="Delete">✕</button></div>
+      <div class="fields">
+        ${def.fields.map(([k, lab, ph, type]) => `<div${k === "url" ? ' class="wide"' : ""}><label>${lab}</label><input data-k="${k}" ${type === "number" ? 'type="number" min="0"' : ""} placeholder="${esc(ph)}" value="${esc(s[k] ?? "")}"></div>`).join("")}
+        <div><label>Extra pause after (ms)</label><input data-k="pause" type="number" min="0" placeholder="0" value="${esc(s.pause ?? "")}"></div>
+        <div class="wide"><label>Narration (what the voice says during this step)</label><textarea data-k="say" rows="2" placeholder="Leave empty for no narration">${esc(s.say ?? "")}</textarea></div>
+      </div></div>`;
+  }
+
+  function render() {
+    app.innerHTML = `
+      <div class="row" style="margin-bottom:14px"><a href="#/scripts">← Scripts</a></div>
+      <div class="row"><div><h1>${isNew ? "New script" : esc(spec.title || name)}</h1><p class="sub">${isNew ? "Describe the demo step by step. Each step can have a line of narration." : `videos/${esc(name)}.json`}</p></div>
+        <span class="spacer"></span>
+        <div class="tabs"><button data-mode="form" class="${mode === "form" ? "on" : ""}">Form</button><button data-mode="json" class="${mode === "json" ? "on" : ""}">JSON</button></div></div>
+      <div class="errors" id="errs"></div>
+      ${mode === "form" ? `
+      <div class="card pad" style="margin-bottom:16px"><div class="fields">
+        <div class="wide"><label>Title</label><input id="f-title" value="${esc(spec.title)}" placeholder="How to sign up"></div>
+        <div class="wide"><label>Start page URL</label><input id="f-url" value="${esc(spec.url)}" placeholder="https://example.com"></div>
+        <div><label>Resolution</label><select id="f-res">${["1920x1080", "1280x720", "source"].map((r) => `<option ${r === spec.resolution ? "selected" : ""}>${r}</option>`).join("")}</select></div>
+        <div><label>Captions</label><select id="f-cap"><option value="true" ${spec.captions ? "selected" : ""}>On (burned into the video)</option><option value="false" ${!spec.captions ? "selected" : ""}>Off</option></select></div>
+        <div class="wide">${voiceFieldHtml(spec.voice)}</div>
+      </div></div>
+      <h2>Steps</h2>
+      <div id="steps">${spec.steps.map(stepHtml).join("")}</div>
+      <button id="addStep">+ Add step</button>
+      <p class="hint">Elements use Playwright selectors: <code>text=Sign up</code>, <code>#email</code>, <code>.btn-primary</code>, <code>role=button[name="Save"]</code>. In Chrome, right-click an element and choose Inspect to find one.</p>`
+      : `<textarea class="json" id="json">${esc(JSON.stringify(spec, null, 2))}</textarea>`}
+      <div class="row" style="margin-top:18px;position:sticky;bottom:0;padding:12px 0;background:var(--bg)">
+        <span class="muted small-t" id="estimate"></span><span class="spacer"></span>
+        ${!isNew ? `<button class="danger" id="delScript">Delete script</button>` : ""}
+        <button id="save">Save</button>
+        <button class="primary" id="saveGen">Save &amp; generate video</button>
+      </div>`;
+    bind();
+  }
+
+  function collect() {
+    if (mode === "json") { spec = JSON.parse($("#json").value); return spec; }
+    spec.title = $("#f-title").value.trim();
+    spec.url = $("#f-url").value.trim();
+    spec.resolution = $("#f-res").value;
+    spec.captions = $("#f-cap").value === "true";
+    if ($("#f-voice")) { const vv = $("#f-voice").value; if (vv) spec.voice = vv; else delete spec.voice; }
+    spec.steps = [...app.querySelectorAll(".stepcard")].map((card) => {
+      const s = { action: card.querySelector('[data-k="action"]').value };
+      card.querySelectorAll("input[data-k], textarea[data-k]").forEach((el) => {
+        const v = el.value.trim(); if (v === "") return;
+        s[el.dataset.k] = el.type === "number" ? Number(v) : v;
+      });
+      return s;
+    });
+    return spec;
+  }
+
+  function estimate() {
+    const words = spec.steps.reduce((n, s) => n + (s.say ? s.say.split(/\s+/).length : 0), 0);
+    const sec = 3.5 + words / 2.6 + spec.steps.length * 1.2;
+    const el = $("#estimate"); if (el) el.textContent = `${spec.steps.length} steps · roughly ${fmtSec(sec)} of video`;
+  }
+
+  function bind() {
+    app.querySelectorAll("[data-mode]").forEach((b) => (b.onclick = () => {
+      try { collect(); } catch (e) { $("#errs").textContent = `The JSON has an error: ${e.message}`; return; }
+      mode = b.dataset.mode; render();
+    }));
+    if (mode === "form") {
+      app.querySelectorAll(".stepcard").forEach((card) => {
+        const i = Number(card.dataset.i);
+        card.querySelector('[data-k="action"]').onchange = (e) => { collect(); spec.steps[i] = { action: e.target.value, ...(spec.steps[i].say ? { say: spec.steps[i].say } : {}) }; render(); };
+        card.querySelectorAll("[data-move]").forEach((b) => (b.onclick = () => { collect(); const j = i + Number(b.dataset.move); [spec.steps[i], spec.steps[j]] = [spec.steps[j], spec.steps[i]]; render(); }));
+        card.querySelector("[data-dup]").onclick = () => { collect(); spec.steps.splice(i + 1, 0, structuredClone(spec.steps[i])); render(); };
+        card.querySelector("[data-rm]").onclick = () => { collect(); spec.steps.splice(i, 1); render(); };
+      });
+      $("#addStep").onclick = () => { collect(); spec.steps.push({ action: "click", selector: "", say: "" }); render(); app.querySelector(".stepcard:last-child input")?.focus(); };
+      app.oninput = () => { try { collect(); estimate(); } catch {} };
+    }
+    estimate();
+    bindVoiceField();
+    const save = async (thenGenerate) => {
+      try { collect(); } catch (e) { $("#errs").textContent = `The JSON has an error: ${e.message}`; return; }
+      try {
+        let saved = name;
+        if (isNew) saved = (await api("/api/scripts", { method: "POST", body: spec })).name;
+        else await api(`/api/scripts/${name}`, { method: "PUT", body: spec });
+        $("#errs").textContent = "";
+        toast("Script saved.");
+        if (thenGenerate) await generate(saved, spec.title);
+        if (isNew) location.hash = `#/script/${saved}`;
+      } catch (e) {
+        $("#errs").textContent = e.errors ? `Please fix:\n• ${e.errors.join("\n• ")}` : e.message;
+        window.scrollTo({ top: 0, behavior: "smooth" });
+      }
+    };
+    $("#save").onclick = () => save(false);
+    $("#saveGen").onclick = () => save(true);
+    if ($("#delScript")) $("#delScript").onclick = async () => {
+      if (!confirm("Delete this script? Videos made from it are kept.")) return;
+      await api(`/api/scripts/${name}`, { method: "DELETE" }); location.hash = "#/scripts";
+    };
+  }
+  render();
+}
+
+api("/api/status").then((s) => { $("#voice").textContent = `Voice: ${s.voice}`; $("#logout").hidden = !s.locked; if (s.tunnel) { tunnel = s.tunnel; renderHeaderShare(); } if (s.job) { job = s.job; dockMin = s.job.status !== "running"; renderDock(); } });
+route();
+</script>
+</body>
+</html>

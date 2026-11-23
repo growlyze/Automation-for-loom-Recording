@@ -1,0 +1,10 @@
+{
+  "title": "",
+  "url": "example.com",
+  "resolution": "4k",
+  "steps": [
+    { "action": "clik", "selector": "#a" },
+    { "action": "type", "selector": "#email" },
+    { "action": "wait", "ms": "soon" }
+  ]
+}

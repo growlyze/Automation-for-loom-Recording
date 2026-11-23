@@ -1,0 +1,16 @@
+{
+  "title": "Add and complete a todo",
+  "url": "https://demo.playwright.dev/todomvc/",
+  "resolution": "1920x1080",
+  "captions": true,
+  "steps": [
+    { "action": "goto", "url": "https://demo.playwright.dev/todomvc/", "say": "Welcome! Let's see how to manage your tasks in TodoMVC." },
+    { "action": "type", "selector": ".new-todo", "text": "Record the product demo", "say": "Click the input box and type your first task." },
+    { "action": "press", "key": "Enter", "say": "Press Enter to add it to the list." },
+    { "action": "type", "selector": ".new-todo", "text": "Send it to the team", "say": "Let's add a second one." },
+    { "action": "press", "key": "Enter" },
+    { "action": "click", "selector": ".todo-list li >> nth=0 >> .toggle", "say": "Tick the checkbox to mark a task as done." },
+    { "action": "click", "selector": "text=Completed", "say": "Open the Completed filter to see what you've finished." },
+    { "action": "wait", "ms": 1500, "say": "That's it. You're all set!" }
+  ]
+}

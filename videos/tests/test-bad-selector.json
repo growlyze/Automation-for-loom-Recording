@@ -1,0 +1,8 @@
+{
+  "title": "Test - bad selector",
+  "url": "https://example.com",
+  "steps": [
+    { "action": "goto", "url": "https://example.com", "say": "This test should fail on the next step." },
+    { "action": "click", "selector": "text=Sign up", "say": "Click Sign up." }
+  ]
+}
