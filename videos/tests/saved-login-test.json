@@ -1,0 +1,17 @@
+{
+  "steps": [
+    {
+      "action": "switch",
+      "account": "owner",
+      "say": "This video uses the voice picked in the script."
+    },
+    {
+      "action": "click",
+      "selector": "role=link[name=\"Logins\"]"
+    }
+  ],
+  "title": "Saved login test",
+  "url": "http://localhost:4400",
+  "voice": "cjVigY5qzO86Huf0OWal",
+  "captions": false
+}

@@ -5,6 +5,7 @@ import { createHash } from "node:crypto";
 import { existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import path from "node:path";
 import { ROOT } from "./env.mjs";
+import { checkLogin, loadLogin } from "./logins.mjs";
 import { PipelineError } from "./openscreen.mjs";
 
 const SESSIONS = path.join(ROOT, ".cache", "sessions");
@@ -104,13 +105,27 @@ export function saveSession(url, email, state) {
  * returns { [id]: storageState }. Logins are spaced out, for sites that limit them.
  */
 export async function prepareAccounts(spec, log) {
-	if (!spec.accounts?.length) return {};
+	// Accounts the script switches to that have no Account: line use a saved login (Logins page).
+	const declared = new Set((spec.accounts ?? []).map((a) => a.id));
+	const savedNames = [...new Set(spec.steps.filter((s) => s.action === "switch" && s.account !== "guest" && !declared.has(s.account)).map((s) => s.account))];
+	if (!spec.accounts?.length && !savedNames.length) return {};
 	const { chromium } = await import("playwright");
 	const browser = await chromium.launch({ channel: process.env.BROWSER_CHANNEL || "chrome", headless: true }).catch(() => chromium.launch({ headless: true }));
 	const states = {};
 	try {
+		for (const name of savedNames) {
+			// The site of the login: the address on its switch step, else the script's site.
+			const site = spec.steps.find((s) => s.action === "switch" && s.account === name && s.url)?.url ?? spec.url;
+			const state = loadLogin(site, name);
+			if (!state) throw new PipelineError(`No saved login "${name}" for ${new URL(site).origin}. Save it on the Logins page (sign in once), or add an Account: line to the script.`);
+			const { status } = await checkLogin(site, name, browser);
+			if (status === "expired") throw new PipelineError(`The saved login "${name}" has expired (the site asks to sign in again). Open the Logins page and click "Sign in again" for "${name}".`);
+			if (status === "unreachable") throw new PipelineError(`Could not open ${site} to check the saved login "${name}". Is the site up?`);
+			log(`  ${name}: saved login still valid.`);
+			states[name] = state;
+		}
 		let lastLogin = 0;
-		for (const account of spec.accounts) {
+		for (const account of spec.accounts ?? []) {
 			const wait = lastLogin + 3000 - Date.now();
 			if (wait > 0) await new Promise((r) => setTimeout(r, wait));
 			const before = Date.now();

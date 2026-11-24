@@ -9,6 +9,7 @@ import Anthropic from "@anthropic-ai/sdk";
 import { betaTool } from "@anthropic-ai/sdk/helpers/beta/json-schema";
 import { chromium } from "playwright";
 import { ensureSession } from "./accounts.mjs";
+import { listLogins, loadLogin, originOf, savedLoginNames } from "./logins.mjs";
 import { parseScript, slugify, validateSpec } from "./input.mjs";
 import { PipelineError } from "./openscreen.mjs";
 import { snapshot } from "./page-snapshot.mjs";
@@ -29,7 +30,7 @@ const SYSTEM = `You turn a demo-video script written in plain English into a ste
 Title: <video title>
 URL: <site URL>
 Captions: on
-Account: <id> | <email> | <password>        (one line per account; id is a short lower-case role name, e.g. admin)
+Account: <id> | <email> | <password>        (only when the script gives an email and password; id is a short lower-case role name, e.g. admin)
 
 Then one step per line, narration after " | ":
   switch <account> [url] | narration     show that account's screen; accounts are signed in automatically before recording, so NEVER script a login. "switch guest <login page url>" shows the signed-out login page.
@@ -51,6 +52,7 @@ Lines starting with # are comments: use them to mark the script's sections.
 - Forms: open them (click the button or link that opens them) and look for required fields (labels ending in *). Fill every required field the script doesn't mention with a short, realistic value, so the submit works.
 - When narration mentions something the snapshot marks "below the fold", add a scroll step (with that part of the narration) so viewers see it.
 - While exploring you cannot click anything that saves or changes data; the click tool refuses. That is expected: still use those elements' selectors in the script.
+- Accounts: first call saved_logins for the site. If the script names an account (e.g. "log in as the admin") without giving its password, use a matching saved login: call sign_in with just its name, and in the script write "switch <name>" with NO Account line. Only add an Account line when the script itself gives the email and password. If an account the script needs has neither a saved login nor credentials, say so in your final message and use the closest saved login.
 - Sign in with sign_in once per account, then use its id in the other tools. Logins are limited on some sites: never sign in the same account twice.
 - Be efficient: look at each page once, and test selectors in batches with test_selector.
 - When done, call submit_script. If it is rejected, fix the problems and submit again. Your final message after an accepted script is one short sentence.`;
@@ -101,7 +103,7 @@ export async function convertScript(prose, { onLine = () => {}, signal } = {}) {
 	const tools = [
 		betaTool({
 			name: "sign_in",
-			description: "Sign an account in (reusing its saved session when it still works) and open the site as that account. Returns a snapshot of the page it lands on. Call once per account.",
+			description: "Open the site as an account. Give email + password to sign in with them, or leave them out to use the saved login with that name (see saved_logins). Returns a snapshot of the page it lands on. Call once per account.",
 			inputSchema: {
 				type: "object",
 				properties: {
@@ -111,12 +113,29 @@ export async function convertScript(prose, { onLine = () => {}, signal } = {}) {
 					site_url: { type: "string", description: "The site's address" },
 					login_url: { type: "string", description: "Login page, if it is not where the site URL redirects to" },
 				},
-				required: ["account", "email", "password", "site_url"],
+				required: ["account", "site_url"],
 				additionalProperties: false,
 			},
 			run: async ({ account, email, password, site_url, login_url }) => {
 				const id = account.toLowerCase();
 				if (pages.has(id)) return `Already signed in as ${id}.\n${await snap(pages.get(id).page)}`;
+				if (!password) {
+					// No credentials: use the login saved on the Logins page.
+					const state = loadLogin(site_url, id);
+					if (!state) return `No saved login "${id}" for ${site_url}, and no password given. Saved logins: ${savedLoginNames(site_url).join(", ") || "none"}.`;
+					const ctx = await browser.newContext({ viewport: { width: 1280, height: 720 }, storageState: state });
+					const page = await ctx.newPage();
+					await page.goto(site_url, { waitUntil: "domcontentloaded", timeout: 60000 });
+					await settle(page);
+					if (await page.locator('input[type="password"] >> visible=true').count().catch(() => 0)) {
+						await ctx.close();
+						action(`Saved login "${id}" has expired`);
+						return `The saved login "${id}" has expired (the site shows a sign-in form). Tell the user to click "Sign in again" for it on the Logins page.`;
+					}
+					pages.set(id, { ctx, page });
+					action(`Opened the site with the saved login "${id}"`);
+					return `Opened as saved login ${id}.\n${await snap(page)}`;
+				}
 				const wait = lastLogin + 3000 - Date.now();
 				if (wait > 0) await new Promise((r) => setTimeout(r, wait));
 				const before = Date.now();
@@ -134,6 +153,16 @@ export async function convertScript(prose, { onLine = () => {}, signal } = {}) {
 					action(`Could not sign in as ${id}: ${e.message}`);
 					return `Sign-in failed: ${e.message}`;
 				}
+			},
+		}),
+		betaTool({
+			name: "saved_logins",
+			description: "List the logins saved on this PC for a site (signed in once by the user, no password needed). Use them for accounts the script names without a password.",
+			inputSchema: { type: "object", properties: { site_url: { type: "string" } }, required: ["site_url"], additionalProperties: false },
+			run: async ({ site_url }) => {
+				const list = listLogins(originOf(site_url));
+				action(`Listed saved logins for ${originOf(site_url)}: ${list.map((l) => l.name).join(", ") || "none"}`);
+				return list.length ? list.map((l) => `${l.name} (saved ${l.savedAt.slice(0, 10)}, last check: ${l.status})`).join("\n") : "No saved logins for this site.";
 			},
 		}),
 		betaTool({

@@ -8,6 +8,7 @@ import { prepareAccounts, saveSession } from "./accounts.mjs";
 import { openBrowser, sleep } from "./browser.mjs";
 import { ROOT, loadEnv } from "./env.mjs";
 import { readInput } from "./input.mjs";
+import { updateLogin } from "./logins.mjs";
 import { clockTime, startRun } from "./runlog.mjs";
 import { PipelineError, connectOpenScreen, ffmpegPath, findOpenScreen } from "./openscreen.mjs";
 import { toSrt, toText, toVtt } from "./transcript.mjs";
@@ -94,9 +95,12 @@ async function main() {
 	const timeline = [];
 	try {
 		// 3. Sign in the script's accounts (saved sessions are reused), stage the page, then record its window.
+		// Accounts come from Account: lines (signed in with email + password) or from logins saved
+		// on the Logins page (no password in the script).
+		const usesAccounts = spec.accounts?.length || spec.steps.some((s) => s.action === "switch" && s.account !== "guest");
 		let accountStates = {};
-		if (spec.accounts?.length) {
-			log(`Preparing ${spec.accounts.length} account(s)...`);
+		if (usesAccounts) {
+			log("Preparing accounts...");
 			accountStates = await prepareAccounts(spec, log);
 		}
 		log(`Opening ${spec.url} ...`);
@@ -104,8 +108,9 @@ async function main() {
 			accounts: accountStates,
 			accountEmails: Object.fromEntries((spec.accounts ?? []).map((a) => [a.id, a.email])),
 			onStateChange: (id, state) => {
-				const acc = spec.accounts.find((a) => a.id === id);
+				const acc = (spec.accounts ?? []).find((a) => a.id === id);
 				if (acc) saveSession(spec.url, acc.email, state);
+				else updateLogin(spec.steps.find((s) => s.action === "switch" && s.account === id && s.url)?.url ?? spec.url, id, state); // a saved login: keep its newest tokens
 			},
 		});
 		// Start in the first step's account, so the opening frames already show the right screen.
@@ -150,7 +155,7 @@ async function main() {
 			if (did) action(`${at} · ${did}`);
 			const actionEnd = Date.now();
 			const narrationEnd = clip ? t0 + clip.durationMs + GAP_MS : t0;
-			const hold = step.action === "wait" ? t0 + (step.ms ?? 1000) : actionEnd + (step.action === "goto" ? 600 : HOLD_MS);
+			const hold = step.action === "wait" ? t0 + (step.ms ?? 1000) : step.action === "blur" || step.action === "unblur" ? actionEnd : actionEnd + (step.action === "goto" ? 600 : HOLD_MS);
 			const until = Math.max(narrationEnd, hold) + (step.pause ?? 0);
 			await sleep(until - Date.now());
 			timeline.push({ step: i + 1, action: step.action, ...(step.account ? { account: step.account } : {}), ...(skipped ? { skipped } : {}), startMs: t0 - recStart, actionMs: actionEnd - t0, endMs: Date.now() - recStart, say: step.say ?? null, narrationMs: clip?.durationMs ?? 0 });
@@ -183,6 +188,29 @@ async function main() {
 		// Cursor and click zooms from the logged pointer (Playwright moves no real mouse).
 		const track = await os.call("setPointerTrack", { projectId, events: pointerEvents, recordingStartedAt: startedAt });
 		log(`Pointer track set; ${track.autoZoomsAdded ?? 0} click zoom(s) planned.`);
+
+		// Privacy blurs: each blur step hides its areas until the next unblur step or the end.
+		const totalForBlur = Math.round((stop.durationSec ?? 0) * 1000) || timeline.at(-1).endMs + TAIL_MS;
+		for (const [i, step] of spec.steps.entries()) {
+			if (step.action !== "blur") continue;
+			const from = timeline[i].startMs;
+			const endIdx = spec.steps.findIndex((s2, j) => j > i && (s2.action === "unblur" || s2.action === "blur"));
+			const to = endIdx > 0 ? timeline[endIdx].startMs : totalForBlur;
+			for (const r of step.regions) {
+				await os.call("addAnnotation", {
+					projectId,
+					type: "blur",
+					startSec: Math.max(0, (from - 300) / 1000),
+					endSec: to / 1000,
+					x: r.x + r.w / 2,
+					y: r.y + r.h / 2,
+					width: r.w,
+					height: r.h,
+					blurData: { type: "mosaic", shape: "rectangle" },
+				});
+			}
+			log(`Privacy blur: ${step.regions.length} area(s) from ${(from / 1000).toFixed(1)} s to ${(to / 1000).toFixed(1)} s.`);
+		}
 
 		// 6. One narration file, timed to the steps, next to the recording (where OpenScreen trusts media).
 		const totalMs = Math.round((stop.durationSec ?? 0) * 1000) || timeline.at(-1).endMs + TAIL_MS;

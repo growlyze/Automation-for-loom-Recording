@@ -21,7 +21,7 @@ export async function openBrowser(url, log, { accounts = {}, accountEmails = {},
 		viewport: null,
 		chromiumSandbox: true,
 		ignoreDefaultArgs: ["--enable-automation"],
-		args: [`--app=${url}`, "--kiosk", "--lang=en-US", "--disable-features=Translate", "--hide-crash-restore-bubble"],
+		args: [`--app=${url}`, "--kiosk", "--lang=en-US", "--disable-features=Translate,LocalNetworkAccessChecks,LocalNetworkAccessChecksWarn,LocalNetworkAccessPermissionPrompt", "--hide-crash-restore-bubble"],
 		locale: "en-US",
 	};
 	const channels = process.env.BROWSER_CHANNEL ? [process.env.BROWSER_CHANNEL] : ["chrome", "msedge", undefined];
@@ -146,7 +146,9 @@ export async function openBrowser(url, log, { accounts = {}, accountEmails = {},
 		await captureCurrent();
 		const target = landingUrl || url;
 		const origin = new URL(target).origin;
-		if (new URL(page.url()).origin !== origin) await page.goto(origin, { waitUntil: "domcontentloaded", timeout: 60000 });
+		// Local storage can only be set on the site's own origin: pass through its tiny robots.txt
+		// (a blink) rather than its home page (seconds of a marketing page on camera).
+		if (new URL(page.url()).origin !== origin) await page.goto(`${origin}/robots.txt`, { waitUntil: "domcontentloaded", timeout: 60000 });
 		const st = accountId === "guest" ? { cookies: [], origins: [] } : states[accountId];
 		await ctx.clearCookies();
 		if (st.cookies?.length) await ctx.addCookies(st.cookies);
@@ -229,6 +231,10 @@ export async function openBrowser(url, log, { accounts = {}, accountEmails = {},
 				}
 				return step.selector ? `Scrolled to ${step.selector}` : `Scrolled ${dy >= 0 ? "down" : "up"} ${Math.abs(Math.round(dy))} px`;
 			}
+			case "blur":
+				return `Blurred ${step.regions.length} area(s) of the screen for privacy`;
+			case "unblur":
+				return "Removed the privacy blur";
 			case "wait":
 				return step.ms ? `Waited ${(step.ms / 1000).toFixed(1)} s` : null; // the pacing below holds for step.ms
 			default:

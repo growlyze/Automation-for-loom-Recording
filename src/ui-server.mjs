@@ -7,7 +7,7 @@ import { existsSync, mkdirSync, readFileSync, readdirSync, renameSync, rmSync, s
 import http from "node:http";
 import path from "node:path";
 import { ROOT, loadEnv } from "./env.mjs";
-import { MIME, readJson, sendJson as send, sendText, serveFile as serveFileBase } from "./http-util.mjs";
+import { MIME, esc, readJson, sendJson as send, sendText, serveFile as serveFileBase } from "./http-util.mjs";
 import { parseScript, slugify, validateSpec } from "./input.mjs";
 
 loadEnv();
@@ -18,6 +18,7 @@ const { listVoices } = await import("./tts.mjs");
 const auth = await import("./auth.mjs");
 const runlog = await import("./runlog.mjs");
 const { convertScript, converterAvailable } = await import("./ai-convert.mjs");
+const logins = await import("./logins.mjs");
 
 // One AI conversion at a time; its progress streams to the page as "convert" events.
 let conversion = null; // { id, status, lines, script, error, startedAt }
@@ -179,6 +180,34 @@ const server = http.createServer(async (req, res) => {
 		if (req.method === "GET" && p === "/theme.css") return serveFileBase(req, res, path.join(ROOT, "ui", "theme.css"), { extra: { "content-type": "text/css; charset=utf-8" } });
 		if (req.method === "GET" && (r = m(/^\/fonts\/(switzer-latin-\d{3}-normal\.woff2)$/))) return serveFileBase(req, res, path.join(ROOT, "ui", "fonts", r[1]), { extra: { "content-type": "font/woff2", "cache-control": "public, max-age=604800" } });
 
+		// ---- the Chrome extension (no app session; protected by the extension code, localhost only) ----
+		if (p === "/ext/capture" && req.method === "GET") {
+			// The extension acts on this page. If it stays visible, the extension isn't installed here.
+			const site = url.searchParams.get("site") ?? "";
+			return sendText(res, 200, `<!doctype html><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><title>Saving login…</title><link rel="stylesheet" href="/theme.css">
+<body style="display:grid;place-items:center;min-height:100vh;padding:16px"><div class="card" style="max-width:520px;padding:28px">
+<span class="brand" style="margin-bottom:16px;color:var(--dark)"><span class="mark" style="border-color:var(--dark)"></span><span class="name"><b>Growlyze</b><span>Automatic Video Recorder</span></span></span>
+<h1 style="font-size:1.3rem">Saving your login for ${esc(site)}…</h1>
+<p style="color:var(--muted);font-weight:500">If this page doesn't change in a few seconds, the <b>Growlyze Recorder - Save login</b> extension isn't installed in this Chrome profile:</p>
+<ol style="line-height:1.8;font-weight:500"><li>Open <code>chrome://extensions</code> in this window and turn on <b>Developer mode</b>.</li><li>Click <b>Load unpacked</b> and choose the folder <code>${esc(path.join(ROOT, "chrome-extension"))}</code>.</li><li>Go back to the recorder and click <b>Open in my Chrome</b> again.</li></ol></div>`, ".html");
+		}
+		if ((r = m(/^\/api\/ext\/(import|failed)$/)) && req.method === "POST") {
+			if (!logins.checkExtensionCode(req.headers["x-recorder-code"])) return send(res, 403, { error: "Wrong recorder code. Copy it again from the recorder's Logins page." });
+			const b = await body(req);
+			try {
+				if (r[1] === "failed") {
+					logins.importFailed(b);
+					broadcast("logins", {});
+					return send(res, 200, { ok: true });
+				}
+				const saved = logins.saveImported(b);
+				broadcast("logins", saved);
+				return send(res, 200, saved);
+			} catch (e) {
+				return send(res, 400, { error: e.message });
+			}
+		}
+
 		// ---- lock ----
 		if (p === "/login") {
 			if (req.method === "POST") {
@@ -217,6 +246,42 @@ const server = http.createServer(async (req, res) => {
 		if (req.method === "GET" && p === "/api/status") {
 			const key = !!process.env.ELEVENLABS_API_KEY?.trim();
 			return send(res, 200, { voice: key ? "ElevenLabs (chosen per script)" : "Windows offline voice (fallback)", job: jobView(), tunnel: share.tunnelState(), locked: auth.authEnabled(), converter: converterAvailable() });
+		}
+
+		// Saved logins: sign in once in a real Chrome window, then scripts use "switch <name>"
+		if (p === "/api/logins" && req.method === "GET") {
+			return send(res, 200, {
+				logins: logins.listLogins(),
+				signingIn: logins.activeCaptures(),
+				fromChrome: logins.chromeRequests(),
+				chromeProfiles: logins.chromeProfiles(),
+				extension: { code: logins.extensionCode(), folder: path.join(ROOT, "chrome-extension") },
+			});
+		}
+		if (p === "/api/logins/from-chrome" && req.method === "POST") {
+			const b = await body(req);
+			try {
+				return send(res, 200, logins.openInChrome({ profile: b.profile, url: String(b.url ?? "").trim(), name: String(b.name ?? "").trim().toLowerCase(), recorderUrl: `http://localhost:${PORT}` }));
+			} catch (e) {
+				return send(res, 400, { error: e.message });
+			}
+		}
+		if (p === "/api/logins" && req.method === "DELETE") {
+			const { origin, name } = Object.fromEntries(url.searchParams);
+			if (!origin || !logins.NAME_RE.test(name ?? "")) return send(res, 400, { error: "Which login?" });
+			logins.deleteLogin(origin, name);
+			return send(res, 200, { ok: true });
+		}
+		if ((r = m(/^\/api\/logins\/(start|save|cancel|check)$/)) && req.method === "POST") {
+			const b = await body(req);
+			try {
+				if (r[1] === "start") return send(res, 200, await logins.startCapture({ url: String(b.url ?? "").trim(), name: String(b.name ?? "").trim().toLowerCase() }));
+				if (r[1] === "save") return send(res, 200, await logins.finishCapture(b.id, { force: !!b.force }));
+				if (r[1] === "cancel") return send(res, 200, (logins.cancelCapture(b.id), { ok: true }));
+				return send(res, 200, await logins.checkLogin(b.origin, b.name));
+			} catch (e) {
+				return send(res, 400, { error: e.message });
+			}
 		}
 
 		// Logs: every run, by month and day

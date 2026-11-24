@@ -186,6 +186,46 @@ and stops itself. The plain CLI can't set a pointer track or caption a voiceover
 The pipeline finds OpenScreen on its own (the Store's `openscreen.exe` alias, or the
 standalone installer's folders). Set `OPENSCREEN_EXE` in `.env` if it can't.
 
+## Saved logins (no passwords in scripts)
+
+### Use a site you're already signed into in Chrome
+
+For sites already signed in in your own Chrome (e.g. make.com with your Google account):
+
+1. One time per Chrome profile: install the extension in `chrome-extension/`.
+   `chrome://extensions` → **Developer mode** → **Load unpacked** → choose that folder.
+2. **Logins** page → **Use a login from your Chrome**: pick the Google account (your
+   Chrome profiles are listed with their emails), enter the site and a name (e.g. `make`) →
+   **Open in my Chrome**.
+3. The site opens in that Chrome profile, already signed in. The extension copies that
+   site's session (cookies and local storage) to the recorder, and the page shows
+   "Saved ✓".
+
+Or, on any site, click the extension's button, give a name, paste the code from the Logins
+page once, and click **Save login**. The extension only sends to the recorder on
+`localhost`, and only with that code.
+
+### Or sign in once in a new window
+
+Instead of writing `Account: admin | email | password` in a script, sign in once:
+
+1. **Logins** page → enter the site address and a name (e.g. `admin`) → **Open Chrome and
+   sign in**.
+2. A normal Chrome window opens. Sign in however the site asks: email and password, Google,
+   a 2-step code.
+3. Click **Save login**. It refuses while the site still shows a sign-in form.
+
+Scripts then just say `switch admin`, with no Account line and no password. Before each
+recording, the saved login is checked. If the site has signed it out, the run stops with a
+message to click **Sign in again**. Each login keeps its own Chrome profile in
+`.cache/logins/` (git-ignored, this PC only), so Google stays signed in there and signing in
+again is usually one click. **Convert with AI** uses saved logins too, for accounts a
+plain-English script names without a password.
+
+You can't reuse your everyday Chrome login directly: Chrome blocks automation of its main
+profile and encrypts its cookies to it. That's why the recorder keeps its own signed-in
+profile per login.
+
 ## Plain-English scripts (Convert with AI)
 
 Paste a script written for a person, such as a Loom script with roles, "Say:" lines and

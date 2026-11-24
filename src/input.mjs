@@ -1,5 +1,6 @@
 // Reads and validates a video input file (JSON).
 import { readFileSync } from "node:fs";
+import { savedLoginNames } from "./logins.mjs";
 import { PipelineError } from "./openscreen.mjs";
 
 export const ACTIONS = {
@@ -10,6 +11,8 @@ export const ACTIONS = {
 	hover: { required: ["selector"], help: '{ "action": "hover", "selector": ".menu" }' },
 	scroll: { required: [], help: '{ "action": "scroll", "selector": "#pricing" }  or  { "action": "scroll", "y": 600 }' },
 	wait: { required: [], help: '{ "action": "wait", "ms": 1500 }' },
+	blur: { required: ["regions"], help: '{ "action": "blur", "regions": [{ "x": 21, "y": 25, "w": 55, "h": 75 }] }  (percent of the screen, from the top-left)' },
+	unblur: { required: [], help: '{ "action": "unblur" }' },
 	switch: { required: ["account"], help: '{ "action": "switch", "account": "admin" }  (or "guest" for signed out)' },
 };
 
@@ -134,6 +137,18 @@ export function parseScript(text) {
 				step.ms = Math.round(Number(ms[1]) * (ms[2]?.toLowerCase() === "s" ? 1000 : 1));
 				break;
 			}
+			case "blur": {
+				// blur <left> <top> <width> <height> [; more areas]  (percent of the screen)
+				const regions = rest.split(";").map((part) => part.trim().split(/[\s,]+/).map(Number)).filter((n) => n.length === 4);
+				if (!regions.length || regions.some((n) => n.some((v) => !Number.isFinite(v)))) {
+					errors.push(`${where}: write blur steps as  blur <left> <top> <width> <height>  in percent of the screen, e.g. blur 21 25 55 75  (separate several areas with ;)`);
+					return;
+				}
+				step.regions = regions.map(([x, y, w, h]) => ({ x, y, w, h }));
+				break;
+			}
+			case "unblur":
+				break;
 			case "say":
 				// narration with no action: hold still while it is spoken
 				step.action = "wait";
@@ -142,7 +157,7 @@ export function parseScript(text) {
 				spec.steps.push(step);
 				return;
 			default:
-				errors.push(`${where}: "${word}" is not a step. Start each line with goto, click, type, press, hover, scroll, wait or say.`);
+				errors.push(`${where}: "${word}" is not a step. Start each line with goto, click, type, press, hover, scroll, wait, say, switch or blur.`);
 				return;
 		}
 		if (say) step.say = say;
@@ -233,6 +248,9 @@ export function validateSpec(spec) {
 			});
 	}
 	if (spec.login !== undefined && (typeof spec.login !== "object" || (spec.login.url !== undefined && !isUrl(spec.login.url)))) errors.push('"login" must be { "url": "https://.../login" } (optional "emailSelector", "passwordSelector", "submitSelector").');
+	// Logins saved on the Logins page for this site count as accounts too (no password needed).
+	const saved = isUrl(spec.url) ? savedLoginNames(spec.url) : [];
+	for (const name of saved) accountIds.add(name);
 
 	(spec.steps ?? []).forEach((step, i) => {
 		const where = `Step ${i + 1}`;
@@ -247,10 +265,19 @@ export function validateSpec(spec) {
 		if (step.ms !== undefined && !(Number.isFinite(step.ms) && step.ms >= 0)) errors.push(`${where}: "ms" must be a number of milliseconds.`);
 		if (step.pause !== undefined && !(Number.isFinite(step.pause) && step.pause >= 0)) errors.push(`${where}: "pause" must be a number of milliseconds.`);
 		if (step.action === "scroll" && step.selector === undefined && !Number.isFinite(step.y)) errors.push(`${where} (scroll) needs "selector" or "y" (pixels), e.g. ${def.help}`);
-		if (step.action === "switch" && step.account && !accountIds.has(String(step.account).toLowerCase())) {
-			errors.push(`${where} (switch): no account "${step.account}". Add it under "accounts" (Account: line), or use "guest" for signed out.`);
+		// A switch with its own address (another site) uses the logins saved for that site.
+		const siteSaved = step.action === "switch" && isUrl(step.url) ? savedLoginNames(step.url) : saved;
+		if (step.action === "switch" && step.account && !accountIds.has(String(step.account).toLowerCase()) && !siteSaved.includes(String(step.account).toLowerCase())) {
+			errors.push(
+				`${where} (switch): no login "${step.account}" for ${isUrl(step.url) ? new URL(step.url).origin : "this site"}. Save one on the Logins page (sign in once, no password in the script), or add an Account: line.` +
+					(siteSaved.length ? ` Saved logins for that site: ${siteSaved.join(", ")}.` : ""),
+			);
 		}
 		if (step.action === "switch" && step.url !== undefined && !isUrl(step.url)) errors.push(`${where} (switch): "${step.url}" is not a full address.`);
+		if (step.action === "blur") {
+			const ok = Array.isArray(step.regions) && step.regions.length > 0 && step.regions.every((r) => ["x", "y", "w", "h"].every((k) => Number.isFinite(r?.[k]) && r[k] >= 0 && r[k] <= 100) && r.w > 0 && r.h > 0 && r.x + r.w <= 100.5 && r.y + r.h <= 100.5);
+			if (!ok) errors.push(`${where} (blur): give each area as left top width height, in percent of the screen (0-100), e.g. blur 21 25 55 75`);
+		}
 		if (step.optional !== undefined && typeof step.optional !== "boolean") errors.push(`${where}: "optional" must be true or false.`);
 	});
 	spec.quality = RESOLUTIONS[spec.resolution];

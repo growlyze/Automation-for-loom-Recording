@@ -42,6 +42,7 @@ async function elevenLabs(provider, text, out) {
 	if (!res.ok) {
 		const body = (await res.text()).slice(0, 300);
 		const hint =
+			/ivc_not_permitted|subscription_required/.test(body) ? ` The voice ${provider.voiceName ? `"${provider.voiceName}" ` : ""}is a cloned voice, and cloned voices need a paid ElevenLabs plan (Starter or higher). Pick a standard voice, or upgrade the plan.` :
 			res.status === 401 ? " The API key in .env is wrong or revoked." :
 			res.status === 404 ? " ELEVENLABS_VOICE_ID does not match a voice on this account." :
 			res.status === 429 ? " Rate limit or quota reached." : "";

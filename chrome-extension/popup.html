@@ -1,0 +1,30 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<style>
+  body { width: 300px; margin: 0; padding: 14px; font: 14px/1.45 system-ui, "Segoe UI", sans-serif; background: #f5f0e6; color: #140827; }
+  h1 { font-size: 15px; margin: 0 0 4px; }
+  p { margin: 0 0 10px; color: #5b5168; font-size: 12.5px; }
+  label { display: block; font-size: 11px; font-weight: 600; letter-spacing: .05em; text-transform: uppercase; margin: 10px 0 4px; }
+  input { width: 100%; box-sizing: border-box; font: inherit; padding: 7px 9px; border: 2px solid #140827; border-radius: 8px; background: #fff; }
+  button { margin-top: 12px; width: 100%; font: inherit; font-weight: 600; padding: 8px; border: 2px solid #140827; border-radius: 10px; background: #f55809; color: #fff; box-shadow: 3px 3px 0 #140827; cursor: pointer; }
+  #msg { margin-top: 10px; font-size: 13px; font-weight: 600; }
+  .site { font-weight: 600; word-break: break-all; }
+</style>
+</head>
+<body>
+  <h1>Save login to Growlyze Recorder</h1>
+  <p>Copies this site's signed-in session to the recorder on this PC, so videos can use it without a password.</p>
+  <div>Site: <span class="site" id="site">-</span></div>
+  <label for="name">Name for this login</label>
+  <input id="name" placeholder="e.g. make">
+  <label for="code">Recorder code (from its Logins page)</label>
+  <input id="code" placeholder="paste once">
+  <label for="recorder">Recorder address</label>
+  <input id="recorder" value="http://localhost:4400">
+  <button id="save">Save login</button>
+  <div id="msg"></div>
+  <script src="popup.js"></script>
+</body>
+</html>

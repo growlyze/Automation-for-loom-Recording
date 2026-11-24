@@ -1,0 +1,10 @@
+{
+  "manifest_version": 3,
+  "name": "Growlyze Recorder - Save login",
+  "version": "1.0.0",
+  "description": "Saves a site's signed-in session from this Chrome profile to the Growlyze Automatic Video Recorder running on this PC (localhost only).",
+  "permissions": ["cookies", "scripting", "tabs", "storage"],
+  "host_permissions": ["<all_urls>"],
+  "background": { "service_worker": "background.js" },
+  "action": { "default_title": "Save this site's login to the Growlyze Recorder", "default_popup": "popup.html" }
+}

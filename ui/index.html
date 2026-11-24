@@ -98,6 +98,7 @@ details summary { font-weight: 600; }
     <div class="side-label">Manage</div>
     <a href="#/scripts" data-nav="scripts"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M7 3h8l4 4v14H7z"/><path d="M15 3v4h4M10 12h6M10 16h6"/></svg>Scripts</a>
     <a href="#/logs" data-nav="logs"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 6h16M4 12h16M4 18h10"/></svg>Logs</a>
+    <a href="#/logins" data-nav="logins"><svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="8" cy="15" r="4"/><path d="M11 12l9-9M17 6l3 3M15 8l2 2"/></svg>Logins</a>
   </nav>
   <div class="side-foot">
     <div class="voice" id="voice"></div>
@@ -190,6 +191,7 @@ async function route() {
     if (view === "video") return await viewVideo(app, arg);
     if (view === "scripts") return await viewScripts(app);
     if (view === "logs") return await viewLogs(app, arg);
+    if (view === "logins") return await viewLogins(app);
     if (view === "log") return await viewLog(app, arg);
     if (view === "script") return arg === "new" ? await viewPaste(app) : await viewEditor(app, arg === "form" ? "new" : arg);
     return await viewVideos(app);
@@ -372,6 +374,136 @@ const ACTIONS = {
 };
 const BLANK = { title: "", url: "https://", resolution: "1920x1080", captions: true, steps: [{ action: "goto", url: "https://", say: "" }] };
 
+// ---------------- saved logins ----------------
+const LOGIN_STATUS = { valid: ["b-ready", "Signed in"], expired: ["b-failed", "Expired - sign in again"], unreachable: ["b-incomplete", "Site not reachable"], missing: ["b-failed", "Missing"] };
+let loginsDraft = { profile: "", url: "", name: "" };
+async function viewLogins(app, message = "") {
+  const data = await api("/api/logins");
+  const { logins, signingIn, fromChrome, chromeProfiles, extension } = data;
+  if (!loginsDraft.profile) loginsDraft.profile = (chromeProfiles.find((p) => p.lastUsed) ?? chromeProfiles[0])?.dir ?? "";
+  const bySite = {};
+  for (const l of logins) (bySite[l.origin] ??= []).push(l);
+  const who = (l) => (l.via === "chrome" ? `from Chrome: ${esc(l.profileName ?? "")}${l.email ? ` (${esc(l.email)})` : ""}` : "signed in in the recorder's window");
+  const row = (origin, l) => {
+    const [cls, label] = LOGIN_STATUS[l.status] ?? ["b-done", l.status];
+    return `<div class="row" style="padding:12px 18px;border-top:1.5px solid var(--line)">
+      <div style="min-width:0;flex:1"><strong>${esc(l.name)}</strong> <span class="badge ${cls}">${label}</span>
+        <div class="small-t muted">${who(l)} · saved ${ago(l.savedAt)} · in a script: <code>switch ${esc(l.name)}</code></div></div>
+      <button class="small" data-check="${esc(l.name)}" data-origin="${esc(origin)}">Check</button>
+      <button class="small" data-again="${esc(l.name)}" data-origin="${esc(origin)}" data-profile="${esc(l.via === "chrome" ? l.profile ?? "" : "")}">Sign in again</button>
+      <button class="small danger" data-del="${esc(l.name)}" data-origin="${esc(origin)}">Delete</button>
+    </div>`;
+  };
+  const siteCard = ([origin, list]) => `<div class="card" style="margin-bottom:16px">
+      <div class="pad" style="padding-bottom:6px"><h2 style="margin:0">${esc(origin)}</h2></div>
+      ${list.map((l) => row(origin, l)).join("")}
+    </div>`;
+  const signingCard = (c) => `<div class="card pad" style="margin-bottom:16px;background:#fff6d6">
+      <h2>Signing in: ${esc(c.name)}</h2>
+      <p class="small-t" style="margin:0 0 12px">A Chrome window is open at <strong>${esc(c.origin)}</strong>. Sign in there in any way (email and password, Google, a 2-step code). When you see the site signed in, come back and click <strong>Save login</strong>.</p>
+      <div class="row"><button class="primary" data-save="${c.id}">Save login</button><button data-cancel="${c.id}">Cancel</button></div>
+    </div>`;
+  const chromeReq = (r) => `<div class="row small-t" style="padding:8px 0;border-top:1.5px solid var(--line)">
+      ${r.status === "waiting" ? '<span class="badge b-running"><span class="spin"></span> Waiting for Chrome</span>' : r.status === "saved" ? '<span class="badge b-ready">Saved</span>' : '<span class="badge b-failed">Not saved</span>'}
+      <span style="min-width:0;flex:1"><strong>${esc(r.name)}</strong> · ${esc(r.origin)} · ${esc(r.profileName)}${r.email ? ` (${esc(r.email)})` : ""}${r.error ? `<br><span style="color:var(--bad)">${esc(r.error)}</span>` : ""}</span>
+    </div>`;
+  const profileOptions = chromeProfiles.map((p) => `<option value="${esc(p.dir)}" ${p.dir === loginsDraft.profile ? "selected" : ""}>${esc(p.name)}${p.email ? ` - ${esc(p.email)}` : " - no Google account"}</option>`).join("");
+
+  app.innerHTML = `
+    <div class="row"><div><h1>Logins</h1><p class="sub">Use sites you're already signed into, or sign in once. Videos then use the login with <code>switch name</code>, with no email or password in the script.</p></div></div>
+    ${message ? `<div class="errors">${esc(message)}</div>` : ""}
+    <div class="two">
+      <div>${logins.length ? Object.entries(bySite).map(siteCard).join("") : `<div class="card empty">No saved logins yet. Add one on the right.</div>`}</div>
+      <div>
+        ${chromeProfiles.length ? `<div class="card pad" style="margin-bottom:16px">
+          <h2>Use a login from your Chrome</h2>
+          <p class="small-t" style="margin:-4px 0 12px">For sites you're already signed into in Chrome (e.g. make.com with your Google account). Nothing to type: the session is copied from that Chrome profile.</p>
+          <div class="fields">
+            <div class="wide"><label>Which Google account (Chrome profile)</label><select id="cgProfile">${profileOptions}</select></div>
+            <div class="wide"><label>Site address</label><input id="cgUrl" placeholder="https://www.make.com" value="${esc(loginsDraft.url)}"></div>
+            <div class="wide"><label>Name</label><input id="cgName" placeholder="make" value="${esc(loginsDraft.name)}"></div>
+          </div>
+          <button class="primary" id="cgStart" style="margin-top:14px">Open in my Chrome</button>
+          ${fromChrome.length ? `<div style="margin-top:14px">${fromChrome.slice().reverse().map(chromeReq).join("")}</div>` : ""}
+          <details style="margin-top:14px"><summary class="small-t">One-time setup: install the extension in that Chrome profile</summary>
+            <ol class="small-t" style="margin:10px 0 0;padding-left:18px;line-height:1.75">
+              <li>In that Chrome profile, open <code>chrome://extensions</code> and turn on <strong>Developer mode</strong> (top right).</li>
+              <li>Click <strong>Load unpacked</strong> and choose this folder:<br><code style="word-break:break-all">${esc(extension.folder)}</code> <button class="small" id="cgCopyFolder">Copy</button></li>
+              <li>Done. "Open in my Chrome" now saves logins automatically. To save by hand, open the site, click the extension's button and paste this code once: <code>${esc(extension.code)}</code> <button class="small" id="cgCopyCode">Copy</button></li>
+            </ol>
+            <p class="hint">Install it in each Chrome profile you want to use. It only sends to this recorder on this PC, only when it has this code.</p>
+          </details>
+        </div>` : ""}
+        ${signingIn.map(signingCard).join("")}
+        <div class="card pad">
+          <h2>Or sign in once in a new window</h2>
+          <p class="small-t" style="margin:-4px 0 12px">For sites you're not signed into in Chrome, or without the extension.</p>
+          <div class="fields">
+            <div class="wide"><label>Site address</label><input id="lgUrl" placeholder="https://app.example.com"></div>
+            <div class="wide"><label>Name</label><input id="lgName" placeholder="admin"><div class="hint">Short and lower-case: you'll write <code>switch admin</code> in scripts.</div></div>
+          </div>
+          <button id="lgStart" style="margin-top:14px">Open Chrome and sign in</button>
+          <p class="hint">A separate Chrome window opens. Sign in however the site asks (email, Google, a 2-step code), then click <strong>Save login</strong> here.</p>
+        </div>
+      </div>
+    </div>`;
+
+  const copy = async (text) => { try { await navigator.clipboard.writeText(text); toast("Copied."); } catch { prompt("Copy:", text); } };
+  if ($("#cgCopyFolder")) $("#cgCopyFolder").onclick = () => copy(extension.folder);
+  if ($("#cgCopyCode")) $("#cgCopyCode").onclick = () => copy(extension.code);
+  const keepDraft = () => { loginsDraft = { profile: $("#cgProfile")?.value ?? loginsDraft.profile, url: $("#cgUrl")?.value ?? "", name: $("#cgName")?.value ?? "" }; };
+  ["#cgProfile", "#cgUrl", "#cgName"].forEach((id) => $(id)?.addEventListener("input", keepDraft));
+  const fromChromeStart = async (profile, url, name) => {
+    try {
+      await api("/api/logins/from-chrome", { method: "POST", body: { profile, url, name } });
+      toast("Opening the site in your Chrome… It saves the login automatically.", 6000);
+      viewLogins(app);
+    } catch (e) { viewLogins(app, e.message); }
+  };
+  if ($("#cgStart")) $("#cgStart").onclick = () => { keepDraft(); fromChromeStart(loginsDraft.profile, loginsDraft.url, loginsDraft.name); };
+
+  const start = async (url, name) => {
+    try {
+      await api("/api/logins/start", { method: "POST", body: { url, name } });
+      toast("Chrome opened. Sign in there, then click Save login.", 5000);
+      viewLogins(app);
+    } catch (e) { viewLogins(app, e.message); }
+  };
+  $("#lgStart").onclick = () => start($("#lgUrl").value, $("#lgName").value);
+  app.querySelectorAll("[data-save]").forEach((b) => (b.onclick = async () => {
+    b.disabled = true; b.textContent = "Saving…";
+    try {
+      const r = await api("/api/logins/save", { method: "POST", body: { id: b.dataset.save } });
+      if (r.saved) { toast(`Login "${r.name}" saved.`); viewLogins(app); }
+      else viewLogins(app, r.reason);
+    } catch (e) { viewLogins(app, e.message); }
+  }));
+  app.querySelectorAll("[data-cancel]").forEach((b) => (b.onclick = async () => {
+    await api("/api/logins/cancel", { method: "POST", body: { id: b.dataset.cancel } });
+    viewLogins(app);
+  }));
+  app.querySelectorAll("[data-again]").forEach((b) => (b.onclick = () => (b.dataset.profile ? fromChromeStart(b.dataset.profile, b.dataset.origin, b.dataset.again) : start(b.dataset.origin, b.dataset.again))));
+  app.querySelectorAll("[data-check]").forEach((b) => (b.onclick = async () => {
+    b.disabled = true; b.textContent = "Checking…";
+    try {
+      const r = await api("/api/logins/check", { method: "POST", body: { origin: b.dataset.origin, name: b.dataset.check } });
+      toast(r.status === "valid" ? `"${r.name}" is still signed in.` : `"${r.name}": ${LOGIN_STATUS[r.status]?.[1] ?? r.status}.`);
+    } catch (e) { toast(e.message); }
+    viewLogins(app);
+  }));
+  app.querySelectorAll("[data-del]").forEach((b) => (b.onclick = async () => {
+    if (!confirm(`Delete the saved login "${b.dataset.del}"? Scripts that use it will need it again.`)) return;
+    await api(`/api/logins?origin=${encodeURIComponent(b.dataset.origin)}&name=${encodeURIComponent(b.dataset.del)}`, { method: "DELETE" });
+    viewLogins(app);
+  }));
+}
+// The extension saved a login: refresh the page if it's open.
+es.addEventListener("logins", (e) => {
+  const d = JSON.parse(e.data || "{}");
+  if (d.name) toast(`Login "${d.name}" saved from your Chrome.`, 5000);
+  if (location.hash === "#/logins") viewLogins($("#app"));
+});
+
 // ---------------- logs ----------------
 const monthName = (m) => new Date(`${m}-01T12:00:00`).toLocaleDateString(undefined, { month: "long", year: "numeric" });
 const dayName = (d) => new Date(`${d}T12:00:00`).toLocaleDateString(undefined, { weekday: "long", day: "numeric", month: "long", year: "numeric" });
@@ -508,7 +640,7 @@ async function viewPaste(app) {
               Then one step per line, with what the voice says after <code>|</code>:<br>
               <code>goto https://site.com | Narration</code> · <code>click text=Sign up | …</code> · <code>type #email "me@test.com" | …</code><br>
               <code>press Enter</code> · <code>hover .menu</code> · <code>scroll #pricing</code> or <code>scroll 600</code> · <code>wait 1500</code> · <code>say Just narration</code><br>
-              Several accounts: <code>Account: admin | admin@site.com | Password</code>, then <code>switch admin</code> (or <code>switch guest</code> for signed out).
+              Accounts: save a login on the <a href="#/logins">Logins</a> page and write <code>switch admin</code> (no password in the script), or add <code>Account: admin | admin@site.com | Password</code>. <code>switch guest</code> = signed out.
               Add <code>?</code> after an action (<code>click?</code>) for a step that may only work once.<br>
               Lines starting with <code>#</code> are notes. JSON scripts (the file format) can be pasted too.
               A script in plain English (like a Loom script) can be converted with AI.
