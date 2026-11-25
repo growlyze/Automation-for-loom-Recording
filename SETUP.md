@@ -153,18 +153,41 @@ npm run make -- videos/example.json
 **Verify:** it ends with `Done: …\output\add-and-complete-a-todo\add-and-complete-a-todo.mp4`,
 and the video appears on the **Videos** page. Every run is also on the **Logs** page.
 
-## Phase 9 (optional): Chrome extension for logins
+## Phase 9 (recommended): Chrome extension for logins
 
-This lets videos use sites the person is already signed into in Chrome (e.g. Zapier, Box)
-without passwords in scripts. **The person must do this themselves**, because Chrome doesn't
-let software install it:
+**What it is:** a small Chrome extension in this repository's `chrome-extension/` folder,
+called **Growlyze Recorder - Save login**. It lets videos use sites the person is already
+signed into in their own Chrome (n8n, ElevenLabs, Zapier, Box, Make, …), so scripts never
+need passwords and nobody types a password on camera.
 
-1. In the Chrome profile they use for work, open `chrome://extensions`.
-2. Turn on **Developer mode** (top right).
-3. Click **Load unpacked** and choose this repository's `chrome-extension` folder.
+**What it does:** when asked, it copies the signed-in session (cookies and local storage) of
+one site from that Chrome profile and sends it to the recorder on this PC
+(`http://localhost:4400` only; it never sends anything anywhere else). The recorder saves it
+on the **Logins** page under a name, e.g. `n8n` or `elevenlabs`. A script then uses it with
+`switch <name> <url>`. Saved logins stay in `.cache/logins/`, which is never pushed.
 
-Then, in the web app: **Logins → Use a login from your Chrome** → pick the Google account →
-site address → **Open in my Chrome**.
+**Install it. The person must do this themselves**, because Chrome doesn't let software
+install extensions:
+
+1. Open the Chrome profile they use for work (the one signed into the Google account the
+   sites use).
+2. Go to `chrome://extensions` and turn on **Developer mode** (top right).
+3. Click **Load unpacked** and choose this repository's `chrome-extension` folder. (The
+   **Logins** page in the web app shows the exact folder path with a **Copy** button.)
+4. Pin it from Chrome's puzzle-piece menu so its button is easy to reach.
+
+**Use it** (either way):
+- **Automatic:** web app → **Logins** → **Use a login from your Chrome** → pick the Chrome
+  profile / Google account → type the site address → **Open in my Chrome**. The site opens in
+  that profile, already signed in, and the extension saves the login by itself.
+- **By hand:** open the site in Chrome, click the extension's button, enter a name, paste the
+  **recorder code** (shown on the Logins page; needed once) and click **Save login**.
+
+**Verify:** the login appears on the **Logins** page; its **Check** button says it's still
+signed in. If a site signs out later, save it again the same way.
+
+If the person skips the extension, logins can still be saved from the Logins page by signing
+in once in a separate Chrome window the recorder opens.
 
 ## Phase 10: Report back
 
