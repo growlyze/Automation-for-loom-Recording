@@ -242,15 +242,22 @@ async function main() {
 
 		// 8. Export.
 		await os.call("setEditorSettings", { projectId, aspectRatio: "16:9", formatFollowCursor: false }).catch((e) => log(`  (aspect ratio left as is: ${e.message})`));
-		// Background behind the recorded window: the Growlyze image (VIDEO_BACKGROUND in .env to change it).
-		const bg = path.resolve(ROOT, process.env.VIDEO_BACKGROUND?.trim() || "assets/background.jpg");
-		if (existsSync(bg)) {
-			const mime = /\.png$/i.test(bg) ? "image/png" : "image/jpeg";
-			// Padding 80 % keeps the Growlyze banner (top) and diagram (right) visible around the window.
-			const pad = Number.parseFloat(process.env.VIDEO_PADDING ?? "");
-			const padding = Number.isFinite(pad) && pad >= 0 && pad <= 100 ? pad : 80;
-			await os.call("setEditorSettings", { projectId, wallpaper: `data:${mime};base64,${readFileSync(bg).toString("base64")}`, wallpaperMotion: "none", padding })
-				.then(() => log(`Background: ${path.relative(ROOT, bg)}`))
+		// Background: OpenScreen's own blue wallpaper by default. VIDEO_BACKGROUND in .env (an image file,
+		// e.g. assets/background.jpg) and VIDEO_PADDING (0-100) change it.
+		const bgSetting = process.env.VIDEO_BACKGROUND?.trim();
+		const look = {};
+		if (bgSetting) {
+			const bg = path.resolve(ROOT, bgSetting);
+			if (existsSync(bg)) {
+				const mime = /\.png$/i.test(bg) ? "image/png" : "image/jpeg";
+				Object.assign(look, { wallpaper: `data:${mime};base64,${readFileSync(bg).toString("base64")}`, wallpaperMotion: "none" });
+			} else log(`  (VIDEO_BACKGROUND not found: ${bgSetting}; keeping the default background)`);
+		}
+		const pad = Number.parseFloat(process.env.VIDEO_PADDING ?? "");
+		if (Number.isFinite(pad) && pad >= 0 && pad <= 100) look.padding = pad;
+		if (Object.keys(look).length) {
+			await os.call("setEditorSettings", { projectId, ...look })
+				.then(() => log(`Background: ${bgSetting || "default"}${look.padding !== undefined ? `, padding ${look.padding}` : ""}`))
 				.catch((e) => log(`  (background left as is: ${e.message})`));
 		}
 		const mp4 = path.join(outDir, `${spec.slug}.mp4`);

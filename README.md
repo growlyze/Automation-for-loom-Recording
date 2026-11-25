@@ -20,8 +20,8 @@ It replaces recording Loom videos manually. Everything runs on your own Windows 
 - **AI voiceover** from ElevenLabs. The person writing the script picks the voice, with
   previews. Without an API key it falls back to the free Windows offline voice.
 - **Voice and actions in sync:** each step lasts as long as its narration line.
-- **Polished output:** a smooth animated cursor, automatic zooms on clicks, the Growlyze
-  background image (`assets/background.jpg`, or `VIDEO_BACKGROUND` in `.env`), and optional
+- **Polished output:** a smooth animated cursor, automatic zooms on clicks, a background
+  (OpenScreen's blue by default; `VIDEO_BACKGROUND` in `.env` sets an image), and optional
   burned-in captions.
 - **Transcripts:** the exact script text with timestamps, as .txt, .srt and .vtt.
 - **Web interface:** write scripts, generate, watch and download videos, jump through steps,
