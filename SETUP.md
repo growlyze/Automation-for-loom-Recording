@@ -102,7 +102,9 @@ Then fill in `.env`. **Ask the person** for each value, and don't echo them back
 |---|---|---|
 | `UI_PASSWORD` | **Yes** | Any password the team chooses. It locks the web app. |
 | `ELEVENLABS_API_KEY` | For the AI voice | elevenlabs.io → profile → **API Keys**. Without it, the free Windows voice is used. |
-| `ELEVENLABS_VOICE_ID` | With the key | The default narrator. `npm run voices` lists the voices on the account. Cloned voices need a paid ElevenLabs plan (Starter or higher). |
+| `ELEVENLABS_VOICE_ID` | With the key | The default narrator. The team's default is the **Classic** voice: `P1bg08DkjqiVEzOn76yG`. `npm run voices` lists the voices on the account. Cloned voices need a paid ElevenLabs plan (Starter or higher). |
+| `ELEVENLABS_STABILITY`, `ELEVENLABS_SIMILARITY`, `ELEVENLABS_STYLE` | Optional | Narration tone, 0 to 1. Leave empty for the default: enthusiastic, confident, friendly (0.35 / 0.8 / 0.45). Lower stability and higher style = more expressive. |
+| `VIDEO_BACKGROUND` | Optional | Image behind the recorded window. Empty = the Growlyze image in `assets/background.jpg`. |
 | `ANTHROPIC_API_KEY` | Optional | console.anthropic.com → **API Keys**. Only for **Convert with AI** (plain-English scripts → steps). |
 | `SHARE_TUNNEL_TOKEN`, `SHARE_BASE_URL` | Optional | A permanent share-link address via Cloudflare. See README → Share links. |
 

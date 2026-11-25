@@ -13,9 +13,24 @@ export function ttsProvider(voiceOverride) {
 	if (key) {
 		const voice = voiceOverride?.trim() || process.env.ELEVENLABS_VOICE_ID?.trim();
 		if (!voice) throw new PipelineError('No voice chosen. Pick one in the script ("voice"), or set a default ELEVENLABS_VOICE_ID in .env.');
-		return { name: "elevenlabs", voice, model: process.env.ELEVENLABS_MODEL_ID?.trim() || "eleven_multilingual_v2", ext: "mp3" };
+		return { name: "elevenlabs", voice, model: process.env.ELEVENLABS_MODEL_ID?.trim() || "eleven_multilingual_v2", settings: voiceSettings(), ext: "mp3" };
 	}
 	return { name: "windows", voice: process.env.WINDOWS_TTS_VOICE?.trim() || "", rate: Number(process.env.WINDOWS_TTS_RATE ?? 0) || 0, ext: "wav" };
+}
+
+// Default delivery: enthusiastic, confident, friendly and approachable. Lower stability = more
+// expressive; higher style = more emotion. Each can be tuned in .env (values 0 to 1).
+function voiceSettings() {
+	const num = (name, def) => {
+		const v = Number.parseFloat(process.env[name] ?? "");
+		return Number.isFinite(v) && v >= 0 && v <= 1 ? v : def;
+	};
+	return {
+		stability: num("ELEVENLABS_STABILITY", 0.35),
+		similarity_boost: num("ELEVENLABS_SIMILARITY", 0.8),
+		style: num("ELEVENLABS_STYLE", 0.45),
+		use_speaker_boost: true,
+	};
 }
 
 export function durationMs(file) {
@@ -34,7 +49,7 @@ async function elevenLabs(provider, text, out) {
 		res = await fetch(url, {
 			method: "POST",
 			headers: { "xi-api-key": process.env.ELEVENLABS_API_KEY.trim(), "content-type": "application/json", accept: "audio/mpeg" },
-			body: JSON.stringify({ text, model_id: provider.model }),
+			body: JSON.stringify({ text, model_id: provider.model, voice_settings: provider.settings }),
 		});
 	} catch (e) {
 		throw new PipelineError(`Could not reach ElevenLabs: ${e.message}`);
@@ -97,7 +112,7 @@ export async function synthesizeAll(steps, clipsDir, log, voiceOverride) {
 	const items = steps.map((s, index) => {
 		if (!s.say) return null;
 		const text = s.say.trim();
-		const key = createHash("sha256").update(JSON.stringify([provider.name, provider.voice, provider.model, provider.rate, text])).digest("hex").slice(0, 20);
+		const key = createHash("sha256").update(JSON.stringify([provider.name, provider.voice, provider.model, provider.rate, provider.settings, text])).digest("hex").slice(0, 20);
 		return { index, text, cached: path.join(cacheDir, `${key}.${provider.ext}`) };
 	});
 	const todo = items.filter((it) => it && !existsSync(it.cached));

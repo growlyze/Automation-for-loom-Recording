@@ -146,6 +146,11 @@ export async function openBrowser(url, log, { accounts = {}, accountEmails = {},
 		await captureCurrent();
 		const target = landingUrl || url;
 		const origin = new URL(target).origin;
+		// Serve the pass-through robots.txt as a blank white page so its text never shows on camera.
+		if (!switchTo.blank) {
+			switchTo.blank = true;
+			await page.route("**/robots.txt", (r) => r.fulfill({ status: 200, contentType: "text/html", body: "<!doctype html><html><body style=\"background:#fff\"></body></html>" }));
+		}
 		// Local storage can only be set on the site's own origin: pass through its tiny robots.txt
 		// (a blink) rather than its home page (seconds of a marketing page on camera).
 		if (new URL(page.url()).origin !== origin) await page.goto(`${origin}/robots.txt`, { waitUntil: "domcontentloaded", timeout: 60000 });
@@ -153,11 +158,20 @@ export async function openBrowser(url, log, { accounts = {}, accountEmails = {},
 		await ctx.clearCookies();
 		if (st.cookies?.length) await ctx.addCookies(st.cookies);
 		const items = st.origins?.find((o) => o.origin === origin)?.localStorage ?? [];
-		await page.evaluate((items) => {
-			localStorage.clear();
-			sessionStorage.clear();
-			for (const { name, value } of items) localStorage.setItem(name, value);
-		}, items);
+		const setStorage = () =>
+			page.evaluate((items) => {
+				localStorage.clear();
+				sessionStorage.clear();
+				for (const { name, value } of items) localStorage.setItem(name, value);
+			}, items);
+		try {
+			await setStorage();
+		} catch {
+			// Sandboxed pages (e.g. HTML served by an n8n webhook) can't touch local storage:
+			// set it from the site's plain robots.txt page instead.
+			await page.goto(`${origin}/robots.txt`, { waitUntil: "domcontentloaded", timeout: 60000 });
+			await setStorage();
+		}
 		await page.goto(target, { waitUntil: "load", timeout: 60000 });
 		current = accountId;
 		if (accountId !== "guest" && (await page.locator('input[type="password"]').first().isVisible().catch(() => false))) {

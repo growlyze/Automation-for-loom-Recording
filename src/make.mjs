@@ -2,7 +2,7 @@
 // One command: input file -> narrated, zoomed demo MP4.
 //   npm run make -- videos/example.json [--no-captions] [--captions] [--keep-cursor-file]
 import { spawnSync } from "node:child_process";
-import { appendFileSync, copyFileSync, existsSync, mkdirSync, readdirSync, rmSync, writeFileSync } from "node:fs";
+import { appendFileSync, copyFileSync, existsSync, mkdirSync, readFileSync, readdirSync, rmSync, writeFileSync } from "node:fs";
 import path from "node:path";
 import { prepareAccounts, saveSession } from "./accounts.mjs";
 import { openBrowser, sleep } from "./browser.mjs";
@@ -242,6 +242,14 @@ async function main() {
 
 		// 8. Export.
 		await os.call("setEditorSettings", { projectId, aspectRatio: "16:9", formatFollowCursor: false }).catch((e) => log(`  (aspect ratio left as is: ${e.message})`));
+		// Background behind the recorded window: the Growlyze image (VIDEO_BACKGROUND in .env to change it).
+		const bg = path.resolve(ROOT, process.env.VIDEO_BACKGROUND?.trim() || "assets/background.jpg");
+		if (existsSync(bg)) {
+			const mime = /\.png$/i.test(bg) ? "image/png" : "image/jpeg";
+			await os.call("setEditorSettings", { projectId, wallpaper: `data:${mime};base64,${readFileSync(bg).toString("base64")}`, wallpaperMotion: "none" })
+				.then(() => log(`Background: ${path.relative(ROOT, bg)}`))
+				.catch((e) => log(`  (background left as is: ${e.message})`));
+		}
 		const mp4 = path.join(outDir, `${spec.slug}.mp4`);
 		log(`Exporting ${spec.resolution} at ${spec.fps} fps ...`);
 		const exp = await os.call("exportVideo", { projectId, path: mp4, quality: spec.quality, fps: spec.fps }, { timeoutMs: 60 * 60 * 1000 });

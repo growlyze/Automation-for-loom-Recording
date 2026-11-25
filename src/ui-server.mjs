@@ -311,7 +311,9 @@ const server = http.createServer(async (req, res) => {
 			try {
 				const voices = await listVoices({ fresh: url.searchParams.has("refresh") });
 				if (!voices) return send(res, 200, { available: false, reason: "No ElevenLabs API key in .env: videos use the Windows offline voice.", voices: [], defaultId: null });
-				return send(res, 200, { available: true, voices, defaultId });
+				// The default may be a Voice Library voice that isn't in the account's list: show it anyway.
+				const list = defaultId && !voices.some((v) => v.id === defaultId) ? [{ id: defaultId, name: "Classic", category: "library", gender: "male", accent: null, age: null, useCase: "narration", previewUrl: null }, ...voices] : voices;
+				return send(res, 200, { available: true, voices: list, defaultId });
 			} catch (e) {
 				return send(res, 200, { available: false, reason: e.message, voices: [], defaultId });
 			}

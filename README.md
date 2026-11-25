@@ -20,8 +20,9 @@ It replaces recording Loom videos manually. Everything runs on your own Windows 
 - **AI voiceover** from ElevenLabs. The person writing the script picks the voice, with
   previews. Without an API key it falls back to the free Windows offline voice.
 - **Voice and actions in sync:** each step lasts as long as its narration line.
-- **Polished output:** a smooth animated cursor, automatic zooms on clicks, a background
-  frame, and optional burned-in captions.
+- **Polished output:** a smooth animated cursor, automatic zooms on clicks, the Growlyze
+  background image (`assets/background.jpg`, or `VIDEO_BACKGROUND` in `.env`), and optional
+  burned-in captions.
 - **Transcripts:** the exact script text with timestamps, as .txt, .srt and .vtt.
 - **Web interface:** write scripts, generate, watch and download videos, jump through steps,
   and leave timestamped edit requests.
@@ -378,7 +379,10 @@ video's title, where you can move zooms, edit captions and export again.
 
 1. `copy .env.example .env`
 2. In `.env`, set `ELEVENLABS_API_KEY=` to your key and `ELEVENLABS_VOICE_ID=` to the
-   **default** voice ID (`npm run voices` lists them). Each script can choose another voice.
+   **default** voice ID (the team default is Classic, `P1bg08DkjqiVEzOn76yG`; `npm run voices`
+   lists them). Each script can choose another voice. Narration is enthusiastic, confident and
+   friendly by default; tune it with `ELEVENLABS_STABILITY`, `ELEVENLABS_SIMILARITY` and
+   `ELEVENLABS_STYLE` (0 to 1).
 3. Run `npm run make -- videos/example.json` again.
 
 The log line `Voice: ElevenLabs (...)` confirms the switch. With the key empty, the pipeline
