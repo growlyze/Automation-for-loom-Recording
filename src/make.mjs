@@ -246,7 +246,10 @@ async function main() {
 		const bg = path.resolve(ROOT, process.env.VIDEO_BACKGROUND?.trim() || "assets/background.jpg");
 		if (existsSync(bg)) {
 			const mime = /\.png$/i.test(bg) ? "image/png" : "image/jpeg";
-			await os.call("setEditorSettings", { projectId, wallpaper: `data:${mime};base64,${readFileSync(bg).toString("base64")}`, wallpaperMotion: "none" })
+			// Padding 80 % keeps the Growlyze banner (top) and diagram (right) visible around the window.
+			const pad = Number.parseFloat(process.env.VIDEO_PADDING ?? "");
+			const padding = Number.isFinite(pad) && pad >= 0 && pad <= 100 ? pad : 80;
+			await os.call("setEditorSettings", { projectId, wallpaper: `data:${mime};base64,${readFileSync(bg).toString("base64")}`, wallpaperMotion: "none", padding })
 				.then(() => log(`Background: ${path.relative(ROOT, bg)}`))
 				.catch((e) => log(`  (background left as is: ${e.message})`));
 		}
