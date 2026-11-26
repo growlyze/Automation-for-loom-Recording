@@ -332,7 +332,7 @@ afterwards).
 | `click` | `selector` | Moves the cursor to the element and clicks it |
 | `type` | `selector`, `text`, optional `delay` (ms per key, default 60) | Clicks the field and types like a person |
 | `press` | `key` | Presses a key: `Enter`, `Tab`, `Escape`, `ArrowDown`, `Control+A`... |
-| `hover` | `selector` | Moves the cursor over an element |
+| `hover` | `selector` | Moves the cursor over an element. `@x,y` (percent of the screen, e.g. `@38,43.6`) points at a spot instead, for canvas apps like a Make scenario |
 | `scroll` | `selector` or `y` | Scrolls smoothly to an element, or by `y` pixels |
 | `wait` | `ms` | Holds still (or as long as its `say` takes, if longer) |
 

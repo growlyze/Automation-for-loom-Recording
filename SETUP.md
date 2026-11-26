@@ -117,7 +117,14 @@ If ElevenLabs is set, also run `npm run voices`. It must list voices, not show a
 
 ## Phase 6: Check that OpenScreen works
 
+First, **ask the person to open the OpenScreen app once from the Start menu**, finish its
+first-run screens, allow screen recording, and leave it open. Until that's done, connecting
+times out (`MCP error -32001: Request timed out`). Work in a normal PowerShell window, not the
+VS Code terminal (see rule 5), and close leftover copies before retrying:
+
 ```powershell
+Remove-Item Env:ELECTRON_RUN_AS_NODE -ErrorAction SilentlyContinue
+Get-Process *openscreen* -ErrorAction SilentlyContinue | Stop-Process -Force
 npm run mcp-tools
 ```
 **Verify:** a list of OpenScreen tools appears (`startRecording`, `exportVideo`, …). If it
@@ -130,6 +137,10 @@ person first):
 npm run smoke
 ```
 It should end with `exportVideo … "format":"mp4"`.
+
+**Never work around a broken recorder** by building videos from screenshots, ffmpeg slideshows
+or Playwright's own video. The whole point is a real recording (cursor, zooms, captions, blur).
+If Phase 6 fails, stop, fix it with the Troubleshooting table, and tell the person what's wrong.
 
 ## Phase 7: Start the web app
 
@@ -240,6 +251,11 @@ When the person asks to push their changes:
 | `OpenScreen is not installed` | `winget install --source msstore OpenScreen`, or set `OPENSCREEN_EXE` in `.env` to the full path of `Openscreen.exe`. |
 | `openscreen.exe` prints Node's help | VS Code set `ELECTRON_RUN_AS_NODE=1`. Run `Remove-Item Env:ELECTRON_RUN_AS_NODE` first. |
 | `ffmpeg was not found` | `winget install Gyan.FFmpeg`, then open a new terminal. |
+| `MCP error -32001: Request timed out` or `Could not connect to OpenScreen` | Open the OpenScreen app once from the Start menu, finish its first-run screens and allow screen recording, leave it open, then retry. Update it from the Microsoft Store if older than 2.3.0. |
+| `MCP error -32000: Connection closed` | Leftover OpenScreen copies or VS Code's `ELECTRON_RUN_AS_NODE`: `Get-Process *openscreen* \| Stop-Process -Force`, `Remove-Item Env:ELECTRON_RUN_AS_NODE`, and run from a normal PowerShell. The error now ends with what OpenScreen itself said. |
+| Blur boxes in the wrong place | Windows display scaling changes the page layout. The recording window's page size is the screen resolution ÷ scaling (1920x1080 at 150% = 1280x720). Measure blur areas at that size, and don't point at things that scroll the page while a blur is on. |
+| A canvas app (e.g. a Make scenario) has nothing to point at | Use `hover @<x>,<y>` with percent of the screen, e.g. `hover @38,43.6`. |
+| A saved login "expired" right after saving | Update to the latest code: the check now opens the real page with a normal Chrome identity (NetSuite and n8n reject "HeadlessChrome"). |
 | `ElevenLabs returned 401` | Wrong or revoked key, or a **cloned voice** on a free plan: pick a standard voice or upgrade. |
 | `Port 4400 is already in use` | The app is already running. Use it, or set `UI_PORT` in `.env`. |
 | `Recording did not start … No window title contains` | Don't minimise or cover the full-screen browser during a recording. |

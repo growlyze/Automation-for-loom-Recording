@@ -200,6 +200,13 @@ export async function openBrowser(url, log, { accounts = {}, accountEmails = {},
 			case "click":
 				return `Clicked ${await click(step.selector, stepNo)}`;
 			case "hover": {
+				// "@x,y": a point on the screen, in percent from the top-left. For canvas apps (e.g. a
+				// Make scenario diagram) where there's no element to aim at.
+				const at = /^@\s*(\d+(?:\.\d+)?)\s*,\s*(\d+(?:\.\d+)?)$/.exec(step.selector);
+				if (at) {
+					await moveTo((Number(at[1]) / 100) * geom.innerWidth, (Number(at[2]) / 100) * geom.innerHeight);
+					return `Pointed at ${at[1]}%, ${at[2]}% of the screen`;
+				}
 				const { loc, cx, cy } = await locate(step.selector, stepNo, "hover");
 				const label = await labelOf(loc, step.selector);
 				await moveTo(cx, cy);

@@ -263,9 +263,13 @@ export async function checkLogin(url, name, browser) {
 	browser ??= await chromium.launch({ channel: process.env.BROWSER_CHANNEL || "chrome", headless: true }).catch(() => chromium.launch({ headless: true }));
 	let status = "valid";
 	try {
-		const ctx = await browser.newContext({ viewport: { width: 1280, height: 720 }, storageState: state });
+		// A normal Chrome identity: some sites (NetSuite, n8n pages) turn "HeadlessChrome" away.
+		const userAgent = `Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/${browser.version()} Safari/537.36`;
+		const ctx = await browser.newContext({ viewport: { width: 1280, height: 720 }, storageState: state, userAgent });
 		const page = await ctx.newPage();
-		await page.goto(origin, { waitUntil: "domcontentloaded", timeout: 60000 });
+		// The page the video opens, not the bare origin: on some sites (NetSuite) the root is the sign-in page.
+		const target = /^https?:\/\/[^/]+\/./.test(String(url)) ? url : origin;
+		await page.goto(target, { waitUntil: "domcontentloaded", timeout: 60000 });
 		await page.waitForTimeout(2000);
 		if (await page.locator(PASSWORD_FIELD).count().catch(() => 0)) status = "expired";
 		await ctx.close();

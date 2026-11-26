@@ -137,8 +137,26 @@ export async function connectOpenScreen() {
 		env: openScreenEnv(),
 		stderr: "pipe",
 	});
+	// Keep OpenScreen's own error output: "Connection closed" alone says nothing about why.
+	let stderrText = "";
+	transport.stderr?.on("data", (d) => {
+		stderrText = (stderrText + d.toString()).slice(-2000);
+	});
 	const client = new Client({ name: "demo-recorder", version: "1.0.0" });
-	await client.connect(transport);
+	try {
+		// The first start after installing (or on a slow PC) can take well over a minute.
+		await client.connect(transport, { timeout: 3 * 60 * 1000 });
+	} catch (e) {
+		const said = stderrText.trim().split("\n").slice(-6).join(" | ");
+		throw new PipelineError(
+			`Could not connect to OpenScreen (${e.message}). Usual fixes: ` +
+				"1) open the OpenScreen app once from the Start menu, finish its first-run screens, allow screen recording, and leave it open; " +
+				"2) close leftover copies: Get-Process *openscreen* | Stop-Process -Force; " +
+				"3) run from a normal PowerShell, not the VS Code terminal, after Remove-Item Env:ELECTRON_RUN_AS_NODE; " +
+				"4) update OpenScreen from the Microsoft Store (2.3.0 or newer)." +
+				(said ? ` OpenScreen said: ${said}` : ""),
+		);
+	}
 	return {
 		client,
 		/** Calls a tool and returns its parsed JSON result, throwing on a tool error. */
